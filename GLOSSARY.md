@@ -1,6 +1,6 @@
 # GhostCodexInspect
 
-GhostCodexInspect 是对 Electron 桌面应用做注入、检查与远程接管的工具。一期目标应用是 Codex 桌面 app。本文件记录该上下文的领域词汇。
+GhostCodexInspect 是对 Electron 桌面应用做注入、检查与远程接管的工具。一期目标应用是 ChatGPT.app（Codex 桌面端已并入其中，bundle id `com.openai.codex`，进程用户数据目录为 `~/Library/Application Support/Codex`）。本文件记录该上下文的领域词汇。
 
 ## 语言
 
@@ -11,7 +11,9 @@ _避免使用_：破解、hook
 
 **CDP 接管（CDP Takeover）**：通过 Chrome DevTools Protocol 连接目标应用调试端口，获得页面评估、输入下发与画面采集能力。
 
-**调试端口（Debug Port）**：目标应用以调试参数启动后暴露的 CDP 端口。每个目标应用独占一个端口，不与其他应用或浏览器混用。
+**调试端口（Debug Port）**：目标应用以调试参数启动后暴露的 CDP 端口。每个目标应用独占一个端口，不与其他应用或浏览器混用。目标应用的 shell 页面 URL 使用自定义 scheme（ChatGPT.app 为 `app://`，另有 `codex-sandbox://`）。
+
+**加固（Hardening）**：目标应用对抗注入的手段。ChatGPT.app 已确认开启 `ElectronAsarIntegrity`（asar 完整性校验，阻断 asar 重打包路线）与 hardened runtime 签名；是否拦截调试参数需实测。
 
 **宿主（Host）**：运行本工具的 macOS 机器，持有目标应用进程与 CDP 连接。
 

@@ -224,3 +224,26 @@ body {
 .hidden {
   display: none !important;
 }
+
+/* ---------- 画面流模式（#12） ---------- */
+
+.screencast-host {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  outline: none; /* 聚焦态不画焦点环 */
+}
+
+.screencast-img {
+  display: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.screencast-img.has-frame {
+  display: block;
+}

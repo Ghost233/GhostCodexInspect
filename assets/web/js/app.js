@@ -4,6 +4,7 @@
 import { RelayClient, parseHashParams, defaultWsUrl } from './ws-client.js';
 import { DomReplaySession } from './replay.js';
 import { InputCaptureLayer } from './input.js';
+import { ScreencastView } from './screencast.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -103,10 +104,15 @@ function main() {
           const placeholder = $('stage-placeholder');
           if (placeholder) placeholder.classList.add('hidden');
         }
+      } else if (envelope.ch === 'frame') {
+        screencastView.handleFrameMessage(envelope.t, envelope.data);
       }
-      // frame / ctrl 的其余类型：本期留钩子，不处理
+      // ctrl 的其余类型：本期留钩子，不处理
     },
   });
+
+  // 画面流视图（#12）：帧渲染 + 输入回灌；客户端创建后实例化（传 client）
+  const screencastView = new ScreencastView($('screencast-host'), client);
 
   // 输入捕获层（#11）：overlay 盖在 iframe 上，事件换算源 CSS px 后经
   // input 通道回宿主转 CDP trusted 输入（lib/dom/input_dispatcher.dart）
@@ -116,7 +122,7 @@ function main() {
   client.connect();
 
   // 暴露调试句柄（方便在控制台验证接入点）
-  window.__remote = { client, session, inputLayer };
+  window.__remote = { client, session, inputLayer, screencastView };
 }
 
 main();

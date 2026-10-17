@@ -38,7 +38,8 @@ enum RelayChannel {
 /// - `resync`：远程端发现 seq 缺口或处理错误时请求重新发全量；
 /// - `ping`/`pong`：应用层心跳；
 /// - `auth`/`authOk`/`authErr`：WS 首消息令牌鉴权握手；
-/// - `input`：input 通道的可信输入事件（远程端 → 宿主，#11 接通）。
+/// - `input`：input 通道的可信输入事件（远程端 → 宿主，#11 接通）；
+/// - `frame`：frame 通道的画面流帧（宿主 → 远程端，#12 接通）。
 enum RelayMessageType {
   meta,
   full,
@@ -50,7 +51,8 @@ enum RelayMessageType {
   auth,
   authOk,
   authErr,
-  input;
+  input,
+  frame;
 
   static RelayMessageType? tryParse(String name) =>
       RelayMessageType.values.asNameMap()[name];

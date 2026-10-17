@@ -100,6 +100,23 @@ class PuppeteerCdpPage implements CdpPage {
   }
 
   @override
+  Stream<ScreencastFrameData> get screencastFrames =>
+      _page.devTools.page.onScreencastFrame.map(
+        (event) => ScreencastFrameData(
+          data: event.data,
+          sessionId: event.sessionId,
+          metadata: {
+            'offsetTop': event.metadata.offsetTop,
+            'pageScaleFactor': event.metadata.pageScaleFactor,
+            'deviceWidth': event.metadata.deviceWidth,
+            'deviceHeight': event.metadata.deviceHeight,
+            'scrollOffsetX': event.metadata.scrollOffsetX,
+            'scrollOffsetY': event.metadata.scrollOffsetY,
+          },
+        ),
+      );
+
+  @override
   Future<void> close() async {
     // 仅释放 puppeteer 侧会话，不关闭目标应用页面。
   }

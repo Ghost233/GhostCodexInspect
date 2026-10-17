@@ -56,9 +56,12 @@
     </section>
 
     <section id="stage-screencast" class="stage-pane hidden" aria-label="画面流模式">
-      <div class="stage-placeholder">
-        <p>画面流模式</p>
-        <p class="hint">兜底模式：目标窗口画面帧序列。数据通道由后续工单接通。</p>
+      <div id="screencast-host" class="screencast-host" tabindex="0">
+        <div id="screencast-placeholder" class="stage-placeholder">
+          <p>等待画面流帧…</p>
+          <p class="hint">画面流由宿主侧启动（宿主 UI 或验证工具），远程端被动渲染。</p>
+        </div>
+        <img id="screencast-img" class="screencast-img" alt="目标应用画面" draggable="false" />
       </div>
     </section>
   </main>

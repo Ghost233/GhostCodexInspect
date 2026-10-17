@@ -32,6 +32,24 @@ bool isShellTarget(CdpTargetInfo target, List<String> shellUrlSchemes) {
   return shellUrlSchemes.any((scheme) => target.url.startsWith('$scheme://'));
 }
 
+/// 画面流一帧（CDP `Page.screencastFrame` 事件）。
+class ScreencastFrameData {
+  const ScreencastFrameData({
+    required this.data,
+    required this.sessionId,
+    required this.metadata,
+  });
+
+  /// base64 编码的图像数据（JPEG/PNG，取决于 startScreencast 的 format）。
+  final String data;
+
+  /// 帧会话号，回执 `Page.screencastFrameAck` 时原样带回。
+  final int sessionId;
+
+  /// 原始元信息（offsetTop/pageScaleFactor/deviceWidth/deviceHeight 等）。
+  final Map<String, dynamic> metadata;
+}
+
 /// 已 attach 到某个 page target 的会话。
 abstract class CdpPage {
   /// 所属 target。
@@ -53,6 +71,11 @@ abstract class CdpPage {
   /// 跨导航存活（DOM 重绘采集器 `__gciEmit` 依赖此语义，工单 #11）。
   /// 流在页面句柄关闭时结束。
   Future<Stream<String>> exposeBinding(String name);
+
+  /// 画面流帧事件流（CDP `Page.screencastFrame`）。仅在 `Page.startScreencast`
+  /// 之后有事件；每帧处理后须回执 `Page.screencastFrameAck`（ack 流控，
+  /// 工单 #12）。
+  Stream<ScreencastFrameData> get screencastFrames;
 
   /// 关闭页面句柄（不断开整个 CDP 连接）。
   Future<void> close();

@@ -186,6 +186,19 @@ class RawCdpPage implements CdpPage {
   Stream<Map<String, dynamic>> get events => _events.stream;
 
   @override
+  Stream<ScreencastFrameData> get screencastFrames => _events.stream
+      .where((e) => e['method'] == 'Page.screencastFrame')
+      .map((e) {
+        final params = (e['params'] as Map?)?.cast<String, dynamic>() ?? {};
+        return ScreencastFrameData(
+          data: params['data'] as String? ?? '',
+          sessionId: params['sessionId'] as int? ?? 0,
+          metadata:
+              (params['metadata'] as Map?)?.cast<String, dynamic>() ?? {},
+        );
+      });
+
+  @override
   Future<void> close() async {
     await _subscription.cancel();
     await _events.close();

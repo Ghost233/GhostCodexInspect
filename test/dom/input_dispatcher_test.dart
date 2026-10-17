@@ -31,6 +31,10 @@ class FakeCdpPage extends CdpPage {
       const Stream<String>.empty();
 
   @override
+  Stream<ScreencastFrameData> get screencastFrames =>
+      const Stream<ScreencastFrameData>.empty();
+
+  @override
   Future<void> close() async {}
 }
 

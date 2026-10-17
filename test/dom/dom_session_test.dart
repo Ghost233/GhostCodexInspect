@@ -66,6 +66,10 @@ class FakeCdpPage extends CdpPage {
       bindingController.stream;
 
   @override
+  Stream<ScreencastFrameData> get screencastFrames =>
+      const Stream<ScreencastFrameData>.empty();
+
+  @override
   Future<void> close() async {}
 }
 

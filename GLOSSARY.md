@@ -33,3 +33,5 @@ _避免使用_：MacLauncher（那是独立的启动器产品，本工具通过�
 **前提校验（Preflight Check）**：确认目标应用是 Electron 且未加固拦截调试参数的检查。校验不通过则 CDP 路线整体失效。
 
 **可信输入（Trusted Input）**：经 CDP Input 域下发、被页面视为真实用户操作的输入事件。页面内合成的脚本事件会被目标应用拒收，不属于可信输入。
+
+**主 shell 页面（Primary Shell Page）**：目标应用的主窗口 page target，URL 为 `app://-/index.html`（无 `initialRoute` 参数）。区别于分离窗口（`detached-window.html`）与头像浮层（`?initialRoute=/avatar-overlay`）——三者同为 `app://` scheme，仅靠 scheme 过滤会命中多个，DOM 采集与画面流必须以主 shell 为目标（#4 实测）。

@@ -1,0 +1,215 @@
+/*
+ * GhostCodexInspect 远程端样式
+ * 深色主题、桌面浏览器优先；参考 macOS 审美（克制、系统字体栈）。
+ */
+
+:root {
+  /* macOS 风格的深色面板配色 */
+  --bg-window: #1e1e20;
+  --bg-panel: #2a2a2d;
+  --bg-panel-hover: #343437;
+  --bg-active: #0a84ff; /* macOS 系统强调色蓝 */
+  --text-primary: #f5f5f7;
+  --text-secondary: #98989d;
+  --text-error: #ff453a;
+  --text-ok: #30d158;
+  --text-warn: #ffd60a;
+  --separator: rgba(255, 255, 255, 0.12);
+  --radius: 8px;
+
+  --font-stack: -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Helvetica Neue", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-stack);
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-window);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- 顶栏 ---------- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 44px;
+  padding: 0 16px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--separator);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.topbar-left {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.app-name {
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.app-sub {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+/* 双模式切换：分段控件（segmented control）样式 */
+.mode-switch {
+  display: flex;
+  margin: 0 auto;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius);
+  padding: 2px;
+}
+
+.mode-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  padding: 4px 14px;
+  border-radius: calc(var(--radius) - 3px);
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.mode-btn:hover {
+  color: var(--text-primary);
+}
+
+.mode-btn.active {
+  background: var(--bg-panel-hover);
+  color: var(--text-primary);
+  font-weight: 500;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+/* ---------- 连接状态指示 ---------- */
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+}
+
+.conn-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.conn-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+}
+
+.conn-indicator.connected {
+  color: var(--text-ok);
+}
+.conn-indicator.connected .conn-dot {
+  background: var(--text-ok);
+}
+
+.conn-indicator.connecting {
+  color: var(--text-warn);
+}
+.conn-indicator.connecting .conn-dot {
+  background: var(--text-warn);
+}
+
+.conn-indicator.disconnected .conn-dot {
+  background: var(--text-secondary);
+}
+
+.conn-indicator.error {
+  color: var(--text-error);
+}
+.conn-indicator.error .conn-dot {
+  background: var(--text-error);
+}
+
+/* ---------- 错误横幅 ---------- */
+
+.error-banner {
+  flex-shrink: 0;
+  padding: 8px 16px;
+  background: rgba(255, 69, 58, 0.12);
+  border-bottom: 1px solid rgba(255, 69, 58, 0.4);
+  color: var(--text-error);
+  font-size: 12px;
+}
+
+/* ---------- 主区域 ---------- */
+
+.stage {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.stage-pane {
+  position: absolute;
+  inset: 0;
+  display: flex;
+}
+
+.replayer-host {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* Replayer 的 sandboxed iframe：等比缩放由 JS 用 transform 控制 */
+.replayer-host iframe {
+  border: none;
+  background: #fff; /* 重建出的页面多为亮色底，iframe 内保持原样 */
+  transform-origin: top left;
+}
+
+.stage-placeholder {
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.stage-placeholder p {
+  margin: 6px 0;
+}
+
+.stage-placeholder .hint {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+/* ---------- 工具类 ---------- */
+
+.hidden {
+  display: none !important;
+}

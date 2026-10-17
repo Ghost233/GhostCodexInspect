@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="dark" />
+  <title>GhostCodexInspect · 远程端</title>
+  <link rel="stylesheet" href="./css/style.css" />
+</head>
+<body>
+  <!-- 顶栏：双模式切换 + 连接状态指示 -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="app-name">GhostCodexInspect</span>
+      <span class="app-sub">远程端</span>
+    </div>
+
+    <nav class="mode-switch" role="tablist" aria-label="远程模式切换">
+      <button
+        id="mode-dom"
+        class="mode-btn active"
+        role="tab"
+        aria-selected="true"
+        data-mode="dom"
+      >DOM 重绘模式</button>
+      <button
+        id="mode-screencast"
+        class="mode-btn"
+        role="tab"
+        aria-selected="false"
+        data-mode="screencast"
+      >画面流模式</button>
+    </nav>
+
+    <div class="topbar-right">
+      <span id="conn-indicator" class="conn-indicator disconnected" title="连接状态">
+        <span class="conn-dot"></span>
+        <span id="conn-text">未连接</span>
+      </span>
+    </div>
+  </header>
+
+  <!-- 错误横幅：鉴权失败 / 协议错误等需要用户注意的情况 -->
+  <div id="error-banner" class="error-banner hidden" role="alert"></div>
+
+  <!-- 主区域：DOM 重绘模式的 iframe 舞台 / 画面流模式占位 -->
+  <main class="stage">
+    <section id="stage-dom" class="stage-pane" aria-label="DOM 重绘模式">
+      <div id="replayer-host" class="replayer-host">
+        <!-- Replayer 的 sandboxed iframe 挂载于此（接入点，#11 接通数据通道后启用） -->
+        <div id="stage-placeholder" class="stage-placeholder">
+          <p>等待中转推送目标应用画面…</p>
+          <p class="hint">DOM 重绘模式的数据通道由后续工单接通；当前显示骨架页面。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="stage-screencast" class="stage-pane hidden" aria-label="画面流模式">
+      <div class="stage-placeholder">
+        <p>画面流模式</p>
+        <p class="hint">兜底模式：目标窗口画面帧序列。数据通道由后续工单接通。</p>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>

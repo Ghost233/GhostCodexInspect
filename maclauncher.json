@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "id": "com.ghost233.ghostcodexinspect",
+    "name": "GhostCodexInspect"
+  },
+  "services": [
+    {
+      "id": "relay",
+      "name": "中转服务"
+    }
+  ],
+  "entry": {
+    "kind": "app",
+    "path": "build/macos/Build/Products/Release/GhostCodexInspect.app"
+  }
+}

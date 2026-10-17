@@ -37,6 +37,11 @@ dependencies:
       path: packages/maclauncher_sdk
 
   cupertino_icons: ^1.0.8
+  shelf: ^1.4.3
+  shelf_web_socket: ^3.0.0
+  shelf_static: ^1.2.0
+  puppeteer: ^3.26.0
+  web_socket_channel: ^3.0.3
 
 dev_dependencies:
   flutter_test:
@@ -59,6 +64,10 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    # 远程端纯静态单页（#9），由宿主中转伺服（#8）。
+    - assets/web/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

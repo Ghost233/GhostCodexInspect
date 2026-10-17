@@ -70,6 +70,10 @@ class RelayServer {
   /// 已鉴权远程端消息回调（input/ctrl 等业务信封由上层消费）。
   void Function(int clientId, RelayEnvelope envelope)? onClientMessage;
 
+  /// 远程端鉴权成功回调（工单 #11：新客户端接入/断线重连后由上层触发
+  /// 全量快照重发，让晚到的远程端立即拿到完整画面）。
+  void Function(int clientId)? onClientAuthed;
+
   HttpServer? _server;
   InternetAddress? _bindAddress;
   String? _token;
@@ -157,6 +161,8 @@ class RelayServer {
 
   void _dispatch(int clientId, RelayEnvelope envelope) =>
       onClientMessage?.call(clientId, envelope);
+
+  void _notifyAuthed(int clientId) => onClientAuthed?.call(clientId);
 
   Handler _buildHandler(InternetAddress address) {
     final allowedHosts = <String>{address.address};
@@ -311,6 +317,7 @@ class _ClientSession {
     _authed = true;
     _authTimer?.cancel();
     send(RelayChannel.ctrl, RelayMessageType.authOk, {'clientId': id});
+    _server._notifyAuthed(id);
   }
 
   void send(RelayChannel channel, RelayMessageType type, Object? data) {

@@ -1,0 +1,191 @@
+/// DOM 重绘会话（工单 #11）：宿主侧编排。
+///
+/// 绑定一个已 attach 的 [CdpPage]（目标应用 shell 页面）与一个运行中的
+/// [RelayServer]：
+/// - 注入采集器（[buildCollectorSource]），事件经 `__gciEmit` binding 回传；
+/// - 回传批次分类后经 dom 通道广播：meta → `meta`、全量快照 → `full`、
+///   增量微批 → `batch`；
+/// - 消费远程端消息：ctrl `resync` → 页面侧强制全量快照；input `input` →
+///   CDP Input 域可信事件（见 input_dispatcher.dart）。
+library;
+
+import 'dart:async';
+
+import '../cdp/cdp_client.dart';
+import '../relay/envelope.dart';
+import '../relay/relay_server.dart';
+import 'dom_collector.dart';
+import 'input_dispatcher.dart';
+
+/// DOM 重绘会话状态快照（宿主 UI / 诊断用）。
+class DomSessionStatus {
+  const DomSessionStatus({
+    required this.active,
+    required this.batchesReceived,
+    required this.envelopesSent,
+    required this.inputsDispatched,
+    required this.lastError,
+  });
+
+  final bool active;
+
+  /// 采集器回传的批次数。
+  final int batchesReceived;
+
+  /// 已向远程端广播的信封数。
+  final int envelopesSent;
+
+  /// 已下发的可信输入数。
+  final int inputsDispatched;
+
+  /// 最近一次错误（分类/下发失败等），无则 null。
+  final String? lastError;
+}
+
+/// DOM 重绘会话。生命周期由宿主管理：[start] 幂等，[stop] 幂等。
+class DomSession {
+  DomSession({required this.page, required this.relay, this.collectorSource});
+
+  /// 目标页面（已 attach 的 shell 会话）。
+  final CdpPage page;
+
+  /// 运行中的中转。
+  final RelayServer relay;
+
+  /// 注入脚本源码；null 时 [start] 从 vendor 路径加载（tool 脚本注入
+  /// 测试源码时传参）。
+  final String? collectorSource;
+
+  StreamSubscription<String>? _bindingSub;
+  String? _lastError;
+  int _batchesReceived = 0;
+  int _envelopesSent = 0;
+  int _inputsDispatched = 0;
+  bool _started = false;
+
+  /// 首份全量快照到达时完成（验收与断线重连检测用）。
+  Completer<void> _firstFull = Completer<void>();
+
+  /// 等待首份全量快照到达。
+  Future<void> get firstFullSnapshot => _firstFull.future;
+
+  bool get isActive => _started;
+
+  DomSessionStatus status() => DomSessionStatus(
+    active: _started,
+    batchesReceived: _batchesReceived,
+    envelopesSent: _envelopesSent,
+    inputsDispatched: _inputsDispatched,
+    lastError: _lastError,
+  );
+
+  /// 启动采集与转发。幂等。
+  Future<void> start() async {
+    if (_started) return;
+    _started = true;
+
+    // 1. binding 先于注入注册，消除页面早期 emit 的竞态。
+    final payloads = await page.exposeBinding(kEmitBindingName);
+    _bindingSub = payloads.listen(
+      _onCollectorBatch,
+      onError: (Object e) => _lastError = 'binding 流错误：$e',
+    );
+
+    // 2. 中转的客户端消息（resync / input）转本会话消费；新客户端鉴权
+    //    成功时触发 resync，让晚到的远程端立即拿到 meta+full（工单 #11）。
+    relay.onClientMessage = _onClientMessage;
+    relay.onClientAuthed = _onClientAuthed;
+
+    // 3. 注入采集器：当前文档立即 evaluate；addScriptToEvaluateOnNewDocument
+    //    覆盖未来导航。
+    final source = collectorSource ?? await loadCollectorSource();
+    await page.send('Page.enable');
+    await page.send('Page.addScriptToEvaluateOnNewDocument', {
+      'source': source,
+    });
+    await page.evaluate(source);
+  }
+
+  /// 停止转发（不动目标页面与中转本身）。幂等。
+  Future<void> stop() async {
+    if (!_started) return;
+    _started = false;
+    await _bindingSub?.cancel();
+    _bindingSub = null;
+    if (relay.onClientMessage == _onClientMessage) {
+      relay.onClientMessage = null;
+    }
+    if (relay.onClientAuthed == _onClientAuthed) {
+      relay.onClientAuthed = null;
+    }
+  }
+
+  /// 采集器回传一批事件（JSON 数组字符串）→ 分类 → dom 通道广播。
+  void _onCollectorBatch(String payloadJson) {
+    _batchesReceived++;
+    final ClassifiedEvents classified;
+    try {
+      classified = classifyEventBatch(payloadJson);
+    } on FormatException catch (e) {
+      _lastError = '采集批次非法：${e.message}';
+      return;
+    }
+    for (final meta in classified.meta) {
+      _broadcastDom(RelayMessageType.meta, meta);
+    }
+    for (final full in classified.full) {
+      _broadcastDom(RelayMessageType.full, full);
+      if (!_firstFull.isCompleted) _firstFull.complete();
+    }
+    if (classified.inc.isNotEmpty) {
+      _broadcastDom(RelayMessageType.batch, classified.inc);
+    }
+  }
+
+  void _broadcastDom(RelayMessageType type, Object? data) {
+    relay.broadcast(RelayChannel.dom, type, data);
+    _envelopesSent++;
+  }
+
+  /// 远程端消息：resync（重发 meta+full）与 input（可信输入下发）。
+  /// resync 权威通道是 `ctrl`（控制面，与鉴权/心跳同通道，见 envelope.dart
+  /// 与 ws-client.js 头部协议注释）；`dom` 通道宽容受理以兼容演进期实现。
+  void _onClientMessage(int clientId, RelayEnvelope envelope) {
+    switch ((envelope.channel, envelope.type)) {
+      case (RelayChannel.dom, RelayMessageType.resync):
+      case (RelayChannel.ctrl, RelayMessageType.resync):
+        _resync();
+      case (RelayChannel.input, RelayMessageType.input):
+        _dispatchClientInput(envelope.data);
+      default:
+        break; // ping/pong 等由中转自处理或忽略
+    }
+  }
+
+  /// 新客户端鉴权成功：重发 meta+full（一期全局广播，不做单端定向）。
+  void _onClientAuthed(int clientId) => _resync();
+
+  /// 触发页面侧全量快照重发（断线重连 / 远程端发现 seq 缺口）。
+  Future<void> _resync() async {
+    // 新一轮 full 到达时应再次完成首快照等待语义：重置 completer 供调用方
+    // 重新 await（重连场景）。
+    if (_firstFull.isCompleted) _firstFull = Completer<void>();
+    try {
+      await page.evaluate('window.$kResyncFunctionName && window.$kResyncFunctionName()');
+    } catch (e) {
+      _lastError = 'resync 触发失败：$e';
+    }
+  }
+
+  Future<void> _dispatchClientInput(Object? data) async {
+    try {
+      final payload = validateInputPayload(data);
+      await dispatchInput(page, payload);
+      _inputsDispatched++;
+    } on InputPayloadException catch (e) {
+      _lastError = '输入 payload 被拒：${e.message}';
+    } catch (e) {
+      _lastError = '输入下发失败：$e';
+    }
+  }
+}

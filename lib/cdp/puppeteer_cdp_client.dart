@@ -4,6 +4,8 @@
 /// 下载/拉起功能（见 docs/research/host-backend.md）。
 library;
 
+import 'dart:async';
+
 import 'package:puppeteer/puppeteer.dart' as pp;
 
 import 'cdp_client.dart';
@@ -83,6 +85,18 @@ class PuppeteerCdpPage implements CdpPage {
   ]) async {
     final result = await _page.devTools.client.send(method, params);
     return result;
+  }
+
+  @override
+  Future<Stream<String>> exposeBinding(String name) async {
+    // puppeteer 的 exposeFunction 内部即 Runtime.addBinding + 跨导航重装
+    // （binding 在 addScriptToEvaluateOnNewDocument 注入的脚本中同样可用）。
+    // 采集器约定单参数 JSON 字符串，这里只取第一个参数。
+    final controller = StreamController<String>();
+    await _page.exposeFunction(name, (String payload) {
+      if (!controller.isClosed) controller.add(payload);
+    });
+    return controller.stream;
   }
 
   @override

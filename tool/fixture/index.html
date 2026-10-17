@@ -3,9 +3,36 @@
   <head>
     <meta charset="utf-8" />
     <title>GhostCodexInspect Fixture Shell</title>
+    <style>
+      body { font-family: sans-serif; margin: 24px; }
+      #counter-btn { padding: 8px 16px; font-size: 16px; }
+      #counter-label { margin-left: 12px; }
+      #echo-input { display: block; margin-top: 16px; width: 320px; padding: 6px; }
+      #echo-label { margin-top: 8px; color: #555; }
+    </style>
   </head>
   <body>
     <h1>Electron 替身 fixture</h1>
     <p>此页面用于验证 GhostCodexInspect 的检测 → 带参启动 → CDP attach → Runtime.evaluate 链路。</p>
+    <!-- DOM 重绘/输入反向（工单 #11）的可交互测试面：
+         按钮点击会推进计数并同步进 document.title（远端可见 DOM 变化）；
+         输入框内容实时镜像到 #echo-label（验证 Input.insertText）。 -->
+    <button id="counter-btn" type="button">点我</button>
+    <span id="counter-label">0</span>
+    <input id="echo-input" type="text" placeholder="输入会镜像到下方" />
+    <div id="echo-label"></div>
+    <script>
+      var count = 0;
+      var label = document.getElementById('counter-label');
+      document.getElementById('counter-btn').addEventListener('click', function () {
+        count += 1;
+        label.textContent = String(count);
+        document.title = 'Fixture clicks=' + count;
+      });
+      var echo = document.getElementById('echo-label');
+      document.getElementById('echo-input').addEventListener('input', function (e) {
+        echo.textContent = e.target.value;
+      });
+    </script>
   </body>
 </html>

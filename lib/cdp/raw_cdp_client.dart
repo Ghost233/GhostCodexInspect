@@ -101,6 +101,21 @@ class RawCdpClient implements CdpClient {
   }
 }
 
+/// 解码 Runtime.bindingCalled 的 payload：Chrome 原生 binding 的 payload
+/// 形态随版本不同（直接是字符串 / JSON 字符串 / JSON 参数数组），宽容解码
+/// 出采集器传入的那个 JSON 字符串。
+String decodeBindingPayload(Object? payload) {
+  if (payload is! String) return '$payload';
+  try {
+    final decoded = jsonDecode(payload);
+    if (decoded is List && decoded.isNotEmpty) return '${decoded.first}';
+    if (decoded is String) return decoded;
+  } on FormatException {
+    // 非 JSON：原样返回。
+  }
+  return payload;
+}
+
 /// 基于 page 级 WebSocket 的 JSON-RPC 会话。
 class RawCdpPage implements CdpPage {
   RawCdpPage(this.target, this._channel) {
@@ -118,6 +133,11 @@ class RawCdpPage implements CdpPage {
   late final StreamSubscription<dynamic> _subscription;
   int _nextId = 1;
   final Map<int, Completer<Map<String, dynamic>>> _pending = {};
+
+  /// 页面 CDP 事件（method/params），供 binding 等事件消费。
+  final StreamController<Map<String, dynamic>> _events =
+      StreamController<Map<String, dynamic>>.broadcast();
+  bool _runtimeEnabled = false;
 
   @override
   Future<Object?> evaluate(String expression) async {
@@ -147,8 +167,28 @@ class RawCdpPage implements CdpPage {
   }
 
   @override
+  Future<Stream<String>> exposeBinding(String name) async {
+    if (!_runtimeEnabled) {
+      await send('Runtime.enable');
+      _runtimeEnabled = true;
+    }
+    await send('Runtime.addBinding', {'name': name});
+    return _events.stream
+        .where(
+          (e) =>
+              e['method'] == 'Runtime.bindingCalled' &&
+              (e['params'] as Map?)?['name'] == name,
+        )
+        .map((e) => decodeBindingPayload((e['params'] as Map)['payload']));
+  }
+
+  /// 页面 CDP 事件流（method/params 原始 Map）。
+  Stream<Map<String, dynamic>> get events => _events.stream;
+
+  @override
   Future<void> close() async {
     await _subscription.cancel();
+    await _events.close();
     await _channel.sink.close();
     for (final completer in _pending.values) {
       if (!completer.isCompleted) {
@@ -161,7 +201,11 @@ class RawCdpPage implements CdpPage {
   void _onMessage(dynamic data) {
     final message = jsonDecode(data as String) as Map<String, dynamic>;
     final id = message['id'];
-    if (id is! int) return; // 事件消息一期不消费。
+    if (id is! int) {
+      // 事件消息（Runtime.bindingCalled 等）推入事件流。
+      if (!_events.isClosed) _events.add(message);
+      return;
+    }
     final completer = _pending.remove(id);
     if (completer == null) return;
     final error = message['error'];

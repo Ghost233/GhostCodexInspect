@@ -47,6 +47,13 @@ abstract class CdpPage {
     Map<String, dynamic>? params,
   ]);
 
+  /// 注册页面全局函数 [name]（CDP `Runtime.addBinding`）：页面侧调用
+  /// `window[name](jsonString)` 时，返回的流推出该字符串 payload。
+  ///
+  /// 跨导航存活（DOM 重绘采集器 `__gciEmit` 依赖此语义，工单 #11）。
+  /// 流在页面句柄关闭时结束。
+  Future<Stream<String>> exposeBinding(String name);
+
   /// 关闭页面句柄（不断开整个 CDP 连接）。
   Future<void> close();
 }

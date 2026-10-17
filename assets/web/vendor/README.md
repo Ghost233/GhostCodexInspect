@@ -11,10 +11,20 @@
 - **构建形式**：官方单文件 ESM 构建，`export { Replayer }`，浏览器直接 `import { Replayer } from './vendor/rrweb-replay.js'` 可用。
 - **用途**：DOM 重绘模式下用 `Replayer` 的 `liveMode: true` + `startLive()` 在 sandboxed iframe 中重建目标应用 DOM，逐条 `addEvent()` 接收增量事件（方案见 docs/research/dom-replay.md §2、§3.1）。
 
+## rrweb-record.js
+
+- **包**：`@rrweb/record`（rrweb 页面采集库，导出 `record` 函数）
+- **版本**：2.1.1
+- **来源 URL**：`https://cdn.rrweb.com/record/2.1.1/dist/record.js`
+- **取用日期**：2026-10-17
+- **构建形式**：官方单文件 **ESM** 构建（尾部 `export { record }`）。**不直接给浏览器 import**：由宿主（`lib/dom/dom_collector.dart`）读入源码、剥掉 export 行、拼接采集 glue 后，经 CDP `Page.addScriptToEvaluateOnNewDocument` / `Runtime.evaluate` 以经典脚本注入目标页面（目标页面不联网、不加载任何外部脚本）。
+- **用途**：DOM 重绘模式的采集侧——全量快照 + MutationObserver 增量，事件经 CDP Runtime binding（`__gciEmit`）回传宿主（工单 #11）。
+
 ## 更新方式
 
 更新时重新下载对应版本 URL 覆盖本文件，并同步更新上面的版本号与来源 URL：
 
 ```sh
 curl -sL https://cdn.rrweb.com/replay/<版本>/dist/replay.js -o assets/web/vendor/rrweb-replay.js
+curl -sL https://cdn.rrweb.com/record/<版本>/dist/record.js -o assets/web/vendor/rrweb-record.js
 ```

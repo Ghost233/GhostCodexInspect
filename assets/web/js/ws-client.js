@@ -7,7 +7,7 @@
  *     "ts": <UTC 毫秒>, "data": <任意 JSON> }
  * - dom   通道：DOM 重绘模式的 rrweb 事件（meta / full / inc / batch，见 docs/research/dom-replay.md §2）
  * - frame 通道：画面流模式的画面帧（本期未接通）
- * - input 通道：远程端 → 中转的可信输入（t='input'，#11 接通，本期保留发送函数）
+ * - input 通道：远程端 → 中转的可信输入（t='input'，#11 接通）
  * - ctrl  通道：鉴权、resync、心跳等控制消息
  *
  * 鉴权：
@@ -203,7 +203,9 @@ export class RelayClient {
 
   /**
    * 请求全量 resync（断线重连后的接入点）。
-   * 协议对齐点：ctrl 通道 resync 消息，中转收到后重发 meta → full → inc 流。
+   * 协议对齐点：ctrl 通道 resync 消息（resync 属控制面，与鉴权/心跳同通道），
+   * 宿主收到后触发页面全量快照，重发 meta → full → inc 流
+   * （宿主侧 DomSession 同时宽容受理 dom 通道 resync）。
    */
   requestResync() {
     return this._send('ctrl', 'resync', {});

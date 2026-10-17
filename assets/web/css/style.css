@@ -185,6 +185,7 @@ body {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  position: relative; /* 输入捕获层定位基准 */
 }
 
 /* Replayer 的 sandboxed iframe：等比缩放由 JS 用 transform 控制 */
@@ -192,6 +193,16 @@ body {
   border: none;
   background: #fff; /* 重建出的页面多为亮色底，iframe 内保持原样 */
   transform-origin: top left;
+}
+
+/* 输入捕获层（#11）：盖在 iframe 上的透明层，远端事件经它换算坐标后
+   走 input 通道回宿主（iframe 是 sandbox 的，事件无法直接穿透） */
+.input-capture-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  cursor: default;
+  outline: none; /* 聚焦态不画焦点环，画面保持纯净 */
 }
 
 .stage-placeholder {

@@ -3,6 +3,7 @@
  */
 import { RelayClient, parseHashParams, defaultWsUrl } from './ws-client.js';
 import { DomReplaySession } from './replay.js';
+import { InputCaptureLayer } from './input.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -97,16 +98,25 @@ function main() {
       // 按通道分发（线格式权威：lib/relay/envelope.dart，键名 ch/t/data）
       if (envelope.ch === 'dom') {
         session.handleDomMessage(envelope.t, envelope.data);
+        // 首份全量快照到达后撤下占位层，露出重建画面
+        if (envelope.t === 'full') {
+          const placeholder = $('stage-placeholder');
+          if (placeholder) placeholder.classList.add('hidden');
+        }
       }
-      // frame / input / ctrl 的其余类型：本期留钩子，不处理
+      // frame / ctrl 的其余类型：本期留钩子，不处理
     },
   });
+
+  // 输入捕获层（#11）：overlay 盖在 iframe 上，事件换算源 CSS px 后经
+  // input 通道回宿主转 CDP trusted 输入（lib/dom/input_dispatcher.dart）
+  const inputLayer = new InputCaptureLayer(host, session, client);
 
   // 中转不可达（如本地静态伺服预览）属预期：页面显示「未连接」并自动重连
   client.connect();
 
   // 暴露调试句柄（方便在控制台验证接入点）
-  window.__remote = { client, session };
+  window.__remote = { client, session, inputLayer };
 }
 
 main();

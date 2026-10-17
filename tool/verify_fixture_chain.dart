@@ -15,7 +15,9 @@ import 'package:ghost_codex_inspect/cdp/cdp.dart';
 import 'package:ghost_codex_inspect/inspector/inspector.dart';
 import 'package:ghost_codex_inspect/launcher/launcher.dart';
 
-const debugPort = 9238;
+// fixture 专用调试端口（工单 #14）：与真机 9238 分离，避免真机占端口时
+// fixture 绑定静默失败、connectCdp 错连真机（2026-10-17 事故）。
+const debugPort = 9240;
 
 void step(String message) => stdout.writeln('\n=== $message');
 
@@ -40,6 +42,14 @@ Future<void> main() async {
   );
   final inspector = Inspector();
   final launcher = AppLauncher();
+
+  // 端口预检（第二道防线）：端口已被占用时拒绝启动，宁可失败也不错连。
+  if (await launcher.isDebugPortAlive(debugPort)) {
+    stderr.writeln('端口 $debugPort 已有 CDP 端点（疑似真机或残留 fixture 实例），'
+        '拒绝启动 fixture 以防错连；请先释放端口。');
+    exitCode = 2;
+    return;
+  }
 
   step('1/5 目标检测与前提校验（fixture：标准 Electron，走通用判据）');
   final preflight = await inspector.checkPreflight(profile);

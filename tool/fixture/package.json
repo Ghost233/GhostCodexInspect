@@ -5,7 +5,7 @@
   "description": "GhostCodexInspect 开发期最小 Electron 替身（hello-world），用于验证启动器与 CDP 链路",
   "main": "main.js",
   "scripts": {
-    "debug": "electron . --remote-debugging-port=9238"
+    "debug": "electron . --remote-debugging-port=9240"
   },
   "dependencies": {
     "electron": "^44.8.0"

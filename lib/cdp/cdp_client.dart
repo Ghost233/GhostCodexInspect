@@ -32,6 +32,21 @@ bool isShellTarget(CdpTargetInfo target, List<String> shellUrlSchemes) {
   return shellUrlSchemes.any((scheme) => target.url.startsWith('$scheme://'));
 }
 
+/// 判断 target 是否为**主 shell 页面**（目标应用主窗口，工单 #14 / #4 实测）。
+///
+/// #4 实测（docs/research/codex-cdp-probe.md 结论 2）：目标应用有多个
+/// `app://` shell page——主窗口 `app://-/index.html`、分离窗口
+/// `detached-window.html?initialRoute=…`、头像浮层
+/// `?initialRoute=/avatar-overlay`。非主窗口一律带 `initialRoute` 查询参数，
+/// 故判据 = shell 命中 且 URL 无 `initialRoute` 参数。
+/// fixture（`file://`，无查询参数）天然满足。
+bool isPrimaryShellTarget(CdpTargetInfo target, List<String> shellUrlSchemes) {
+  if (!isShellTarget(target, shellUrlSchemes)) return false;
+  final uri = Uri.tryParse(target.url);
+  if (uri == null) return true; // 解析失败宽容视为无参数（保守不丢 target）
+  return !uri.queryParameters.containsKey('initialRoute');
+}
+
 /// 画面流一帧（CDP `Page.screencastFrame` 事件）。
 class ScreencastFrameData {
   const ScreencastFrameData({

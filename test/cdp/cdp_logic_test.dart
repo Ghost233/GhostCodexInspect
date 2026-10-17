@@ -75,6 +75,63 @@ void main() {
     });
   });
 
+  // #4 实测：真机有 3 个 app:// shell page，非主窗口一律带 initialRoute 参数
+  //（docs/research/codex-cdp-probe.md 结论 2；工单 #14 Scope 1）。
+  group('isPrimaryShellTarget / findShellTarget 多 shell 场景（#14）', () {
+    const mainShell = CdpTargetInfo(
+      id: 'main',
+      type: 'page',
+      url: 'app://-/index.html',
+      title: 'ChatGPT',
+    );
+    const detached = CdpTargetInfo(
+      id: 'det',
+      type: 'page',
+      url: 'app://-/detached-window.html?initialRoute=%2Fdetached-window',
+      title: 'detached',
+    );
+    const avatar = CdpTargetInfo(
+      id: 'ava',
+      type: 'page',
+      url: 'app://-/index.html?initialRoute=%2Favatar-overlay',
+      title: 'avatar',
+    );
+
+    test('主窗口（无 initialRoute）是主 shell，其余不是', () {
+      expect(isPrimaryShellTarget(mainShell, ['app']), isTrue);
+      expect(isPrimaryShellTarget(detached, ['app']), isFalse);
+      expect(isPrimaryShellTarget(avatar, ['app']), isFalse);
+    });
+
+    test('fixture file:// 无查询参数，天然是主 shell', () {
+      const fixture = CdpTargetInfo(
+        id: 'f',
+        type: 'page',
+        url: 'file:///x/index.html',
+        title: 'fixture',
+      );
+      expect(isPrimaryShellTarget(fixture, ['file']), isTrue);
+    });
+
+    test('三 shell 并存时选中主窗口（无论枚举顺序）', () {
+      expect(findShellTarget([avatar, detached, mainShell], ['app']).id, 'main');
+      expect(findShellTarget([mainShell, avatar], ['app']).id, 'main');
+    });
+
+    test('shell 存在但无一个主窗口时抛错（不静默挑浮层）', () {
+      expect(
+        () => findShellTarget([detached, avatar], ['app']),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('都不是主窗口'),
+          ),
+        ),
+      );
+    });
+  });
+
   group('parsePgrepOutput', () {
     test('解析每行一个 pid', () {
       expect(parsePgrepOutput('123\n456\n'), [123, 456]);

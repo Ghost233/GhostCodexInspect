@@ -57,15 +57,27 @@ Future<CdpConnection> connectCdp({
   return CdpConnection(client: rawClient, fellBack: true);
 }
 
-/// 在已连接客户端上找到目标应用的 shell 页面 target。
+/// 在已连接客户端上找到目标应用的**主 shell 页面** target（工单 #14）。
 ///
-/// 未找到时抛出带全部 target 清单的异常，便于诊断。
+/// 多个 shell page 并存时只认主窗口（无 `initialRoute` 参数，见
+/// [isPrimaryShellTarget] 与 #4 实测）；shell 存在但无一个主窗口时抛出
+/// 带 shell 清单的异常——不静默挑错窗口（浮层/分离窗口采了也是错的）。
+/// 完全无 shell 时抛出带全部 target 清单的异常，便于诊断。
 CdpTargetInfo findShellTarget(
   List<CdpTargetInfo> targets,
   List<String> shellUrlSchemes,
 ) {
-  for (final target in targets) {
-    if (isShellTarget(target, shellUrlSchemes)) return target;
+  final shells = targets
+      .where((t) => isShellTarget(t, shellUrlSchemes))
+      .toList(growable: false);
+  for (final target in shells) {
+    if (isPrimaryShellTarget(target, shellUrlSchemes)) return target;
+  }
+  if (shells.isNotEmpty) {
+    throw StateError(
+      '找到 ${shells.length} 个 shell page 但都不是主窗口（均带 initialRoute '
+      '参数，疑似主窗口已关闭）：\n  ${shells.join('\n  ')}',
+    );
   }
   throw StateError(
     '未找到 shell 页面 target（scheme：${shellUrlSchemes.join(', ')}）。'

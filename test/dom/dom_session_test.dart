@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_codex_inspect/cdp/cdp_client.dart';
 import 'package:ghost_codex_inspect/dom/dom.dart';
+import 'package:ghost_codex_inspect/relay/compression.dart';
 import 'package:ghost_codex_inspect/relay/relay.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -149,6 +150,18 @@ void main() {
     expect(status.active, isTrue);
     expect(status.batchesReceived, 1);
     expect(status.envelopesSent, 3);
+  });
+
+  test('大 payload 经压缩包装广播，解压后还原（#14）', () async {
+    page.bindingController.add(jsonEncode([
+      {'type': 3, 'data': {'pad': 'x' * 6000}, 'timestamp': 1},
+    ]));
+    final batch = await nextEnvelope();
+    expect(batch.channel, RelayChannel.dom);
+    expect(batch.type, RelayMessageType.batch);
+    expect(isCompressedPayload(batch.data), isTrue);
+    final restored = maybeDecompressPayload(batch.data);
+    expect((restored! as List).single['type'], 3);
   });
 
   test('非法批次计数为错误但不中断会话', () async {

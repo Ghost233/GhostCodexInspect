@@ -24,7 +24,12 @@
  * WS 地址：默认同源 `/ws` 路径（ws(s)://<location.host>/ws），
  * 可用 location.hash 的 ws 参数覆盖。宿主访问链接形如
  * http://<addr>:<port>/#t=<token>（token 参数名为 t，兼容裸 #<token> 与 #token=）。
+ * 压缩（#14）：大 payload 的 data 为 {"z":"fflate","b64":"<base64(zlib(json))>"}
+ * 包装（宿主侧 lib/relay/compression.dart），本模块在分发前解压还原，
+ * 上层（replay.js 等）始终看到原始 payload。
  */
+
+import { unzlibSync, strFromU8 } from '../vendor/fflate.js';
 
 const RECONNECT_BASE_MS = 1000; // 重连起步延迟
 const RECONNECT_MAX_MS = 15000; // 重连延迟上限
@@ -57,6 +62,24 @@ export function parseHashParams(hash) {
 export function defaultWsUrl(loc) {
   const scheme = loc.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${scheme}//${loc.host}/ws`;
+}
+
+function b64ToU8(b64) {
+  const bin = atob(b64);
+  const u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return u8;
+}
+
+/**
+ * 压缩包装解压（协议对齐：lib/relay/compression.dart）。
+ * data 为 {"z":"fflate","b64":...} 时解压还原原始 payload，否则原样返回。
+ * 包装损坏抛异常（调用方按坏帧处理）。
+ */
+export function maybeDecompress(data) {
+  if (!data || typeof data !== 'object' || data.z !== 'fflate') return data;
+  if (typeof data.b64 !== 'string') throw new Error('压缩包装缺 b64 字段');
+  return JSON.parse(strFromU8(unzlibSync(b64ToU8(data.b64))));
 }
 
 export class RelayClient {
@@ -147,6 +170,13 @@ export class RelayClient {
           try { ws.close(); } catch { /* 忽略 */ }
           return;
         }
+      }
+      // 压缩包装在分发前解压（见 maybeDecompress）
+      try {
+        envelope.data = maybeDecompress(envelope.data);
+      } catch (err) {
+        console.warn('[ws-client] 压缩 payload 解压失败，丢弃本帧', err);
+        return;
       }
       this.onMessage(envelope);
     };

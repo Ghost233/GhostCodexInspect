@@ -28,7 +28,9 @@ import 'package:ghost_codex_inspect/screencast/screencast.dart';
 import 'package:puppeteer/puppeteer.dart' as pp;
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-const debugPort = 9238;
+// fixture 专用调试端口（工单 #14）：与真机 9238 分离，避免真机占端口时
+// fixture 绑定静默失败、connectCdp 错连真机（2026-10-17 事故）。
+const debugPort = 9240;
 const chromePath =
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
@@ -56,6 +58,14 @@ Future<void> main() async {
   final inspector = Inspector();
   final launcher = AppLauncher();
 
+  // 端口预检（第二道防线）：端口已被占用时拒绝启动，宁可失败也不错连。
+  if (await launcher.isDebugPortAlive(debugPort)) {
+    stderr.writeln('端口 $debugPort 已有 CDP 端点（疑似真机或残留 fixture 实例），'
+        '拒绝启动 fixture 以防错连；请先释放端口。');
+    exitCode = 2;
+    return;
+  }
+
   step('1/7 前提校验 + 带参启动 fixture（端口 $debugPort）');
   final preflight = await inspector.checkPreflight(profile);
   if (!preflight.passed) {
@@ -81,7 +91,9 @@ Future<void> main() async {
     step('3/7 启动中转 + ScreencastSession，等待首帧');
     await relay.start();
     stdout.writeln('远程端访问链接：${relay.accessUrl}');
-    final session = ScreencastSession(page: page, relay: relay);
+    // everyNthFrame 显式 1：本 E2E 用 10fps 动画源测帧率下限，限帧会干扰断言；
+    // 生产默认 4（#14，真机带宽实测结论）。
+    final session = ScreencastSession(page: page, relay: relay, everyNthFrame: 1);
     await session.start();
     await session.firstFrame.timeout(const Duration(seconds: 15),
         onTimeout: () {

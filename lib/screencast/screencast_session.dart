@@ -53,7 +53,7 @@ class ScreencastSession {
     required this.page,
     required this.relay,
     this.quality = 60,
-    this.everyNthFrame = 1,
+    this.everyNthFrame = 4,
     this.maxWidth,
     this.maxHeight,
   });
@@ -67,7 +67,8 @@ class ScreencastSession {
   /// JPEG 质量（0-100，默认 60；档位校准待 #6 实测数据）。
   final int quality;
 
-  /// 每隔几帧推一帧（默认 1 = 全推，源侧帧率由页面重绘驱动）。
+  /// 每隔几帧推一帧（默认 4：#6 真机实测全推时源端 40-62fps、12-21MB/s，
+  /// 限帧 4 后 ~10-15fps、2-4MB/s；fixture E2E 等需要精确帧率的场景显式传 1）。
   final int everyNthFrame;
 
   /// 帧最大宽/高（CDP 侧缩放；null = 不限制）。

@@ -196,6 +196,30 @@ class AppLauncher {
     throw TimeoutException('调试端口 127.0.0.1:$port 在 $timeout 内未就绪');
   }
 
+  /// 探测调试端口是否已有 CDP 端点在监听（不区分属主）。
+  ///
+  /// 用途：fixture 工具启动前预检——真机实例占用端口时 fixture 的
+  /// `--remote-debugging-port` 会静默绑定失败，随后 connectCdp 错连真机
+  /// （2026-10-17 事故，工单 #14；fixture 端口已与真机分离为 9240，
+  /// 本预检是第二道防线）。
+  Future<bool> isDebugPortAlive(
+    int port, {
+    Duration timeout = const Duration(milliseconds: 500),
+  }) async {
+    final client = _httpClientFactory();
+    try {
+      final request =
+          await client.get('127.0.0.1', port, '/json/version').timeout(timeout);
+      final response = await request.close().timeout(timeout);
+      await response.drain<void>();
+      return response.statusCode == 200;
+    } on Object {
+      return false;
+    } finally {
+      client.close();
+    }
+  }
+
   void _guard(
     TargetProfile profile,
     bool confirmRealTarget, {

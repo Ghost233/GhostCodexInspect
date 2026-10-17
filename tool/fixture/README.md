@@ -21,10 +21,14 @@ npm install electron   # 首次需下载约 100MB，属正常
 手动验证（可选）：
 
 ```sh
-npm run debug   # 等价于 electron . --remote-debugging-port=9238
+npm run debug   # 等价于 electron . --remote-debugging-port=9240
 ```
 
-随后访问 <http://127.0.0.1:9238/json/list> 应能看到 `file://` 开头的 page target。
+随后访问 <http://127.0.0.1:9240/json/list> 应能看到 `file://` 开头的 page target。
+
+> 端口用 9240 而非真机的 9238（工单 #14）：真机实例占用端口时 fixture 会
+> 静默绑定失败，connectCdp 会错连真机（2026-10-17 事故）；自动化工具启动前
+> 还会做端口占用预检，宁可失败也不错连。
 
 自动化全链路验证（推荐，无需手动启动）：
 

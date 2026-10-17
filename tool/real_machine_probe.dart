@@ -71,7 +71,8 @@ Future<void> main(List<String> args) async {
   for (final a in args) {
     if (a.startsWith('--port=')) portArg = a.substring('--port='.length);
   }
-  final debugPort = int.tryParse(portArg) ?? 9238;
+  // 真机默认 9238；fixture 模式默认 9240（工单 #14：与真机分离防错连）。
+  final debugPort = int.tryParse(portArg) ?? (fixtureMode ? 9240 : 9238);
 
   final repoRoot = Directory.current.path;
   final fixtureDir = '$repoRoot/tool/fixture';
@@ -87,6 +88,13 @@ Future<void> main(List<String> args) async {
   var fixtureLaunched = false;
 
   if (fixtureMode) {
+    // 端口预检（第二道防线）：端口已被占用时拒绝启动，宁可失败也不错连。
+    if (await launcher.isDebugPortAlive(debugPort)) {
+      stderr.writeln('端口 $debugPort 已有 CDP 端点（疑似真机或残留 fixture 实例），'
+          '拒绝启动 fixture 以防错连；请先释放端口。');
+      exitCode = 2;
+      return;
+    }
     step('fixture 模式：先拉起 fixture（端口 $debugPort）');
     await launcher.launch(profile, debugPort: debugPort);
     fixtureLaunched = true;

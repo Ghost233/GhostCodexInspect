@@ -12,6 +12,7 @@ library;
 import 'dart:async';
 
 import '../cdp/cdp_client.dart';
+import '../relay/compression.dart';
 import '../relay/envelope.dart';
 import '../relay/relay_server.dart';
 import 'dom_collector.dart';
@@ -44,7 +45,12 @@ class DomSessionStatus {
 
 /// DOM 重绘会话。生命周期由宿主管理：[start] 幂等，[stop] 幂等。
 class DomSession {
-  DomSession({required this.page, required this.relay, this.collectorSource});
+  DomSession({
+    required this.page,
+    required this.relay,
+    this.collectorSource,
+    this.compressionMinBytes = kCompressionMinBytes,
+  });
 
   /// 目标页面（已 attach 的 shell 会话）。
   final CdpPage page;
@@ -55,6 +61,11 @@ class DomSession {
   /// 注入脚本源码；null 时 [start] 从 vendor 路径加载（tool 脚本注入
   /// 测试源码时传参）。
   final String? collectorSource;
+
+  /// dom 通道 payload 压缩阈值（UTF-8 字节，#14）：真机全量快照 2.86MB，
+  /// 压缩后远程端用 fflate 解压；0 = 全部压缩（测试用），
+  /// 大数 = 实际关闭。默认 [kCompressionMinBytes]。
+  final int compressionMinBytes;
 
   StreamSubscription<String>? _bindingSub;
   String? _lastError;
@@ -143,7 +154,11 @@ class DomSession {
   }
 
   void _broadcastDom(RelayMessageType type, Object? data) {
-    relay.broadcast(RelayChannel.dom, type, data);
+    relay.broadcast(
+      RelayChannel.dom,
+      type,
+      maybeCompressPayload(data, minBytes: compressionMinBytes),
+    );
     _envelopesSent++;
   }
 

@@ -54,7 +54,7 @@ Future<void> main() async {
   final inspector = Inspector();
   final launcher = AppLauncher();
 
-  step('1/7 前提校验 + 带参启动 fixture（端口 $debugPort）');
+  step('1/8 前提校验 + 带参启动 fixture（端口 $debugPort）');
   final preflight = await inspector.checkPreflight(profile);
   if (!preflight.passed) {
     stderr.writeln('前提校验未通过：\n${preflight.toPrettyJson()}');
@@ -68,7 +68,7 @@ Future<void> main() async {
   pp.Browser? browser;
   var failed = false;
   try {
-    step('2/7 CDP attach + 定位 shell 页面');
+    step('2/8 CDP attach + 定位 shell 页面');
     final connection = await connectCdp(debugPort: launch.debugPort);
     stdout.writeln('CDP 实现：${connection.implementationName}');
     final shell =
@@ -76,7 +76,7 @@ Future<void> main() async {
     final page = await connection.client.attachTo(shell);
     stdout.writeln('shell：$shell');
 
-    step('3/7 启动中转 + 建立 DomSession，等待首份全量快照');
+    step('3/8 启动中转 + 建立 DomSession，等待首份全量快照');
     await relay.start();
     stdout.writeln('远程端访问链接：${relay.accessUrl}');
     final session = DomSession(page: page, relay: relay);
@@ -87,7 +87,7 @@ Future<void> main() async {
     });
     stdout.writeln('首份全量快照已到达（采集器注入与 binding 回传正常）');
 
-    step('4/7 Phase A：Dart WS 客户端鉴权 + resync');
+    step('4/8 Phase A：Dart WS 客户端鉴权 + resync');
     final client = WebSocketChannel.connect(
         Uri.parse('ws://127.0.0.1:${relay.port}/ws'));
     await client.ready;
@@ -111,7 +111,7 @@ Future<void> main() async {
         .timeout(const Duration(seconds: 10));
     stdout.writeln('resync 后收到全量快照（${jsonEncode(gotFull.data).length} 字节 JSON）');
 
-    step('5/7 Phase A：input 通道点击按钮 + 输入文本');
+    step('5/8 Phase A：input 通道点击按钮 + 输入文本');
     final btnRect = jsonDecode((await page.evaluate(
             "JSON.stringify(document.getElementById('counter-btn').getBoundingClientRect())"))
         as String) as Map<String, dynamic>;
@@ -146,7 +146,27 @@ Future<void> main() async {
     await incoming.close();
     await client.sink.close();
 
-    step('6/7 Phase B：headless Chrome 打开远程端，Replayer 真实重建');
+    step('6/8 raw 回退客户端 binding 自检（fallback 路径未被 DomSession 覆盖）');
+    // DomSession 走的是 connectCdp 选出的 puppeteer 实现；这里单独建一条
+    // RawCdpClient 连接，验证 Runtime.addBinding + bindingCalled 回传链路。
+    final rawClient = RawCdpClient(debugPort: launch.debugPort);
+    await rawClient.connect();
+    try {
+      final rawPage = await rawClient.attachTo(shell);
+      final rawPayloads = await rawPage.exposeBinding('__gciRawProbe');
+      final probeFuture =
+          rawPayloads.first.timeout(const Duration(seconds: 10));
+      await rawPage.evaluate("window.__gciRawProbe('raw-binding-probe')");
+      final probePayload = await probeFuture;
+      if (probePayload != 'raw-binding-probe') {
+        throw StateError('raw binding 载荷不符：$probePayload');
+      }
+      stdout.writeln('raw 回退 binding 回传正常：$probePayload');
+    } finally {
+      await rawClient.close();
+    }
+
+    step('7/8 Phase B：headless Chrome 打开远程端，Replayer 真实重建');
     browser = await pp.puppeteer.launch(
       executablePath: chromePath,
       headless: true,
@@ -174,7 +194,7 @@ Future<void> main() async {
     stdout.writeln('replay iframe 内容文本断言通过（含「Electron 替身 fixture」，'
         '共 ${(iframeText as String).length} 字符）');
 
-    step('7/7 Phase B：远程端点击按钮 → 回灌 fixture');
+    step('8/8 Phase B：远程端点击 + 打字 → 回灌 fixture');
     // 按钮的远端显示坐标 = iframe 视觉原点 + 源坐标 × scale
     final clickPoint = await _pollEvaluate(remotePage.asCdpPageAdapter(), '''
 (() => {
@@ -193,12 +213,36 @@ Future<void> main() async {
         what: '远程端点击后标题应为 Fixture clicks=2');
     stdout.writeln('远程端点击回灌生效：document.title = $titleAfterRemoteClick');
 
+    // 远程端文本输入：点击远端输入框位置 → 键盘逐字符（input.js 把可打印
+    // 字符聚成 {kind:text} 逐字符即发）→ 宿主 insertText 写回 fixture。
+    final inputPoint = await _pollEvaluate(remotePage.asCdpPageAdapter(), '''
+(() => {
+  const r = window.__remote.session;
+  const iframe = document.querySelector('#replayer-host iframe');
+  if (!r || !iframe || !r.scale) return null;
+  const rect = iframe.getBoundingClientRect();
+  return {x: rect.left + $inX * r.scale, y: rect.top + $inY * r.scale};
+})()
+''', (v) => v is Map && v['x'] != null, what: '应算出远端输入框点击坐标');
+    final inPoint = inputPoint as Map;
+    await remotePage.mouse.click(pp.Point(
+        (inPoint['x'] as num).toDouble(), (inPoint['y'] as num).toDouble()));
+    await remotePage.keyboard.type('ok');
+    // 注意：点击落在输入框左缘，caret 在 0 位，插入结果是 'okhi' 而非
+    // 'hiok'——只断言两段文本都在，不断言顺序。
+    final fixtureInputValue = await _pollEvaluate(
+        page, "document.getElementById('echo-input').value",
+        (v) => v is String && v.contains('hi') && v.contains('ok'),
+        what: '远程端输入后 fixture 输入框值应含 hi（Phase A）与 ok（Phase B）');
+    stdout.writeln('远程端文本输入回灌生效：#echo-input.value = $fixtureInputValue');
+
     final status = session.status();
     stdout.writeln('DomSession 状态：batches=${status.batchesReceived} '
         'envelopes=${status.envelopesSent} inputs=${status.inputsDispatched} '
         'lastError=${status.lastError}');
-    if (status.inputsDispatched < 4) {
-      stderr.writeln('输入下发计数异常（预期 ≥4：A 两次点击+一次文本、B 一次点击）');
+    if (status.inputsDispatched < 7) {
+      stderr.writeln('输入下发计数异常（预期 ≥7：A 两次点击(4)+一次文本(1)、'
+          'B 一次点击(2)+两字符文本(2)）');
       failed = true;
     }
 

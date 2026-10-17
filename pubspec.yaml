@@ -42,6 +42,7 @@ dependencies:
   shelf_static: ^1.2.0
   puppeteer: ^3.26.0
   web_socket_channel: ^3.0.3
+  flutter_inappwebview: ^6.1.5
 
 dev_dependencies:
   flutter_test:

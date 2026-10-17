@@ -84,6 +84,13 @@ function main() {
   const params = parseHashParams(location.hash);
   const wsUrl = params.ws || defaultWsUrl(location);
 
+  // 工单 #13：宿主「远程视图」页内嵌 WebView 以 #t=<token>&ro=1 加载 → 只读预览，
+  // 不挂输入捕获层（输入只放远程端；host 侧照常处理其他远程端的输入）。
+  const readOnly = params.ro === '1';
+  if (readOnly) {
+    $('ro-badge')?.classList.remove('hidden');
+  }
+
   if (!params.token) {
     setConnState('disconnected');
     showError('缺少鉴权 token：访问链接应形如 http://<宿主地址>:<端口>/#t=<令牌>' +
@@ -112,11 +119,16 @@ function main() {
   });
 
   // 画面流视图（#12）：帧渲染 + 输入回灌；客户端创建后实例化（传 client）
-  const screencastView = new ScreencastView($('screencast-host'), client);
+  const screencastView = new ScreencastView($('screencast-host'), client, {
+    readOnly,
+  });
 
   // 输入捕获层（#11）：overlay 盖在 iframe 上，事件换算源 CSS px 后经
-  // input 通道回宿主转 CDP trusted 输入（lib/dom/input_dispatcher.dart）
-  const inputLayer = new InputCaptureLayer(host, session, client);
+  // input 通道回宿主转 CDP trusted 输入（lib/dom/input_dispatcher.dart）；
+  // 只读预览（ro=1）不挂载。
+  const inputLayer = readOnly
+    ? null
+    : new InputCaptureLayer(host, session, client);
 
   // 中转不可达（如本地静态伺服预览）属预期：页面显示「未连接」并自动重连
   client.connect();

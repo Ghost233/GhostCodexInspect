@@ -15,6 +15,20 @@ import 'relay_token.dart';
 /// 鉴权失败的 WebSocket 关闭码（私有用途，4400 段为应用自定义）。
 const int kRelayCloseUnauthorized = 4401;
 
+/// 远程端连接信息（中转台 UI 列表用，工单 #13）。
+class RelayClientInfo {
+  const RelayClientInfo({required this.id, required this.authed});
+
+  /// 连接序号（本次运行内自增）。
+  final int id;
+
+  /// 是否已通过 token 鉴权。
+  final bool authed;
+
+  @override
+  String toString() => '远程端 #$id（${authed ? '已鉴权' : '待鉴权'}）';
+}
+
 /// 中转状态快照（onStatus 与宿主 UI 共用）。
 class RelayServerStatus {
   RelayServerStatus({
@@ -93,6 +107,12 @@ class RelayServer {
 
   /// 当前远程端连接数。
   int get clientCount => _clients.length;
+
+  /// 当前远程端连接列表（中转台 UI 用）。
+  List<RelayClientInfo> get clients => [
+    for (final entry in _clients.entries)
+      RelayClientInfo(id: entry.key, authed: entry.value.isAuthed),
+  ];
 
   /// 带 token fragment 的访问 URL，供宿主 UI 展示/复制；
   /// fragment 不进 HTTP 请求与服务器日志。未运行时为 null。
@@ -252,6 +272,9 @@ class _ClientSession {
   final RelayServer _server;
 
   bool _authed = false;
+
+  /// 是否已通过 token 鉴权。
+  bool get isAuthed => _authed;
 
   /// 出站 seq：每连接从 0 单调递增，断线重连由新全量快照重置
   /// （dom-replay.md §2「不做增量续传」）。

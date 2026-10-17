@@ -154,6 +154,19 @@ body {
   background: var(--text-error);
 }
 
+/* 只读预览徽标（工单 #13）：宿主内嵌 ro=1 预览时显示 */
+.ro-badge {
+  margin-right: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+.ro-badge.hidden {
+  display: none;
+}
+
 /* ---------- 错误横幅 ---------- */
 
 .error-banner {

@@ -24,8 +24,10 @@ export class ScreencastView {
   /**
    * @param {HTMLElement} host #screencast-host 容器（tabindex=0）
    * @param {import('./ws-client.js').RelayClient} client 中转客户端
+   * @param {{ readOnly?: boolean }} [options] readOnly=true 时只渲染不捕获输入
+   *   （工单 #13：宿主内嵌只读预览 ro=1）
    */
-  constructor(host, client) {
+  constructor(host, client, options = {}) {
     this.host = host;
     this.client = client;
     this.img = host.querySelector('img');
@@ -33,7 +35,9 @@ export class ScreencastView {
     /** 视口元信息（meta 信封到达前为 null，输入拒绝发送）。 */
     this.viewport = null;
 
-    this._bindInput();
+    if (!options.readOnly) {
+      this._bindInput();
+    }
     window.addEventListener('resize', () => this._fit());
     // 模式页签 hidden→visible 时 clientWidth 从 0 变为真实值：观察宿主尺寸
     // 变化触发重排（_fit 在尺寸为 0 时静默跳过，见下）。

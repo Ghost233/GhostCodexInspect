@@ -1,34 +1,44 @@
 import 'package:flutter/material.dart';
-import 'package:maclauncher_sdk/maclauncher_sdk.dart';
 
-import 'sdk/launcher_connection.dart';
+import 'ui/home_shell.dart';
+import 'ui/host_controller.dart';
+import 'ui/theme.dart';
 
 void main() {
   runApp(const GhostCodexInspectApp());
 }
 
 class GhostCodexInspectApp extends StatefulWidget {
-  const GhostCodexInspectApp({super.key, this.autoConnect = true});
+  const GhostCodexInspectApp({super.key, this.autoConnect = true, this.controller});
 
-  /// 是否启动即连接 MacLauncher。测试关闭以避免 SDK 重连定时器悬挂。
+  /// 是否启动即连接 MacLauncher SDK。测试传 false 避免 SDK 重连定时器
+  /// 造成 widget 测试不变量校验失败（见 #7 工单踩坑）。
   final bool autoConnect;
+
+  /// 测试可注入替身控制器；为空时自行创建默认实例。
+  final HostController? controller;
 
   @override
   State<GhostCodexInspectApp> createState() => _GhostCodexInspectAppState();
 }
 
 class _GhostCodexInspectAppState extends State<GhostCodexInspectApp> {
-  final LauncherConnection _launcher = LauncherConnection();
+  late final HostController _controller =
+      widget.controller ?? HostController();
 
   @override
   void initState() {
     super.initState();
-    if (widget.autoConnect) _launcher.connect();
+    if (widget.autoConnect) {
+      _controller.connectSdk();
+    }
   }
 
   @override
   void dispose() {
-    _launcher.dispose();
+    if (widget.controller == null) {
+      _controller.dispose();
+    }
     super.dispose();
   }
 
@@ -36,31 +46,10 @@ class _GhostCodexInspectAppState extends State<GhostCodexInspectApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'GhostCodexInspect',
-      theme: ThemeData.dark(useMaterial3: true),
-      home: Scaffold(
-        appBar: AppBar(title: const Text('GhostCodexInspect')),
-        body: Center(
-          child: StreamBuilder<SdkConnectionStatus>(
-            stream: _launcher.states,
-            initialData: _launcher.lastStatus,
-            builder: (context, snapshot) {
-              final status = snapshot.data;
-              final text = status == null
-                  ? '启动器连接：connecting'
-                  : '启动器连接：${status.state.name}'
-                      '${status.reason == null ? '' : '（${status.reason}）'}';
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('宿主脚手架（工单 #7）'),
-                  const SizedBox(height: 8),
-                  Text(text),
-                ],
-              );
-            },
-          ),
-        ),
-      ),
+      debugShowCheckedModeBanner: false,
+      theme: buildAppTheme(Brightness.light),
+      darkTheme: buildAppTheme(Brightness.dark),
+      home: HomeShell(controller: _controller),
     );
   }
 }

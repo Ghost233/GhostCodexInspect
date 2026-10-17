@@ -1,10 +1,45 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_codex_inspect/main.dart';
+import 'package:ghost_codex_inspect/ui/host_controller.dart';
 
 void main() {
-  testWidgets('脚手架冒烟：窗口渲染且发起启动器连接', (tester) async {
-    await tester.pumpWidget(const GhostCodexInspectApp(autoConnect: false));
-    expect(find.text('GhostCodexInspect'), findsOneWidget);
-    expect(find.textContaining('启动器连接'), findsWidgets);
+  testWidgets('主界面冒烟：侧栏四模块 + 启动器页渲染', (tester) async {
+    final controller = HostController(autoRefresh: false);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      GhostCodexInspectApp(autoConnect: false, controller: controller),
+    );
+    await tester.pump();
+
+    // 侧栏四模块
+    expect(find.text('启动器'), findsWidgets);
+    expect(find.text('检查器'), findsOneWidget);
+    expect(find.text('中转台'), findsOneWidget);
+    expect(find.text('远程视图'), findsOneWidget);
+
+    // 默认落启动器页：目标应用卡 + 前提校验卡 + 运行状态卡
+    expect(find.text('目标应用'), findsOneWidget);
+    expect(find.text('前提校验'), findsOneWidget);
+    expect(find.text('运行状态'), findsOneWidget);
+    expect(find.text('带参启动'), findsWidgets);
+  });
+
+  testWidgets('侧栏切换到中转台：空态与开关渲染', (tester) async {
+    final controller = HostController(autoRefresh: false);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      GhostCodexInspectApp(autoConnect: false, controller: controller),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('中转台'));
+    await tester.pump();
+
+    expect(find.text('WebSocket 服务'), findsOneWidget);
+    expect(find.text('启动中转'), findsOneWidget);
+    expect(find.text('允许局域网访问'), findsWidgets);
+    expect(find.text('安全边界'), findsOneWidget);
   });
 }

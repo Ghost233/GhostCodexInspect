@@ -66,14 +66,38 @@ class RelayServerStatus {
 /// IPv4，绝不绑 0.0.0.0。
 class RelayServer {
   RelayServer({
-    this.staticDir = 'assets/web',
+    String? staticDir,
     this.wsPath = 'ws',
     this.authTimeout = const Duration(seconds: 5),
     this.onClientMessage,
-  });
+  }) : staticDir = staticDir ?? resolveWebRoot();
 
-  /// 远程端静态资产目录（相对宿主进程工作目录）。
+  /// 远程端静态资产目录。默认 [resolveWebRoot]：打包/集成运行时使用
+  /// app 包内 `flutter_assets/assets/web`，CLI 工具退回仓库相对路径。
   final String staticDir;
+
+  /// 解析远程端静态资产根目录（真机走查发现：打包/集成测试场景下进程
+  /// 工作目录不是仓库根，相对路径 `assets/web` 不存在）。
+  ///
+  /// 候选（首个存在的胜出）：
+  /// 1. 环境变量 `GCI_WEB_ROOT`（工具/测试显式覆盖）；
+  /// 2. 当前可执行文件所在 app 包内 flutter_assets（调试与发布两种布局）；
+  /// 3. 相对路径 `assets/web`（CLI 工具从仓库根运行）。
+  static String resolveWebRoot() {
+    final env = Platform.environment['GCI_WEB_ROOT'];
+    if (env != null && Directory(env).existsSync()) return env;
+    // …/GhostCodexInspect.app/Contents/MacOS/GhostCodexInspect → Contents
+    final exe = File(Platform.resolvedExecutable).resolveSymbolicLinksSync();
+    final contents = File(exe).parent.parent.path;
+    for (final layout in const [
+      'Frameworks/App.framework/Resources/flutter_assets/assets/web',
+      'Frameworks/App.framework/Versions/A/Resources/flutter_assets/assets/web',
+    ]) {
+      final candidate = '$contents/$layout';
+      if (Directory(candidate).existsSync()) return candidate;
+    }
+    return 'assets/web';
+  }
 
   /// WebSocket 端点路径（不含前导斜杠）。
   final String wsPath;

@@ -8,5 +8,8 @@
 	<true/>
 	<key>com.apple.security.network.server</key>
 	<true/>
+	<!-- 中转台要作为 CDP/WebSocket 客户端连 127.0.0.1:9238 与本机远程端 -->
+	<key>com.apple.security.network.client</key>
+	<true/>
 </dict>
 </plist>

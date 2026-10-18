@@ -11,17 +11,20 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 /// 极简 WS 消息队列（与 dom_session_test 同款单订阅消费模式）。
 class _Queue {
   _Queue(Stream<dynamic> stream) {
-    _sub = stream.listen((e) {
-      if (_waiters.isNotEmpty) {
-        _waiters.removeAt(0).complete(e);
-      } else {
-        _buffer.add(e);
-      }
-    }, onDone: () {
-      while (_waiters.isNotEmpty) {
-        _waiters.removeAt(0).completeError(StateError('连接已关闭'));
-      }
-    });
+    _sub = stream.listen(
+      (e) {
+        if (_waiters.isNotEmpty) {
+          _waiters.removeAt(0).complete(e);
+        } else {
+          _buffer.add(e);
+        }
+      },
+      onDone: () {
+        while (_waiters.isNotEmpty) {
+          _waiters.removeAt(0).completeError(StateError('连接已关闭'));
+        }
+      },
+    );
   }
 
   final _buffer = <dynamic>[];
@@ -46,7 +49,11 @@ class _FakeCdpPage extends CdpPage {
 
   @override
   CdpTargetInfo get target => const CdpTargetInfo(
-      id: 't1', type: 'page', url: 'file:///fixture', title: 'fixture');
+    id: 't1',
+    type: 'page',
+    url: 'file:///fixture',
+    title: 'fixture',
+  );
 
   @override
   Future<Object?> evaluate(String expression) async {
@@ -58,8 +65,10 @@ class _FakeCdpPage extends CdpPage {
   }
 
   @override
-  Future<Map<String, dynamic>> send(String method,
-      [Map<String, dynamic>? params]) async {
+  Future<Map<String, dynamic>> send(
+    String method, [
+    Map<String, dynamic>? params,
+  ]) async {
     sent.add((method, params));
     if (method == 'Page.captureScreenshot') {
       return {'data': base64Encode(utf8.encode('synthetic-jpeg'))};
@@ -79,10 +88,10 @@ class _FakeCdpPage extends CdpPage {
 }
 
 ScreencastFrameData _frame(int sessionId) => ScreencastFrameData(
-      data: base64Encode(utf8.encode('jpeg-bytes-$sessionId')),
-      sessionId: sessionId,
-      metadata: const {'deviceWidth': 720, 'deviceHeight': 480},
-    );
+  data: base64Encode(utf8.encode('jpeg-bytes-$sessionId')),
+  sessionId: sessionId,
+  metadata: const {'deviceWidth': 720, 'deviceHeight': 480},
+);
 
 void main() {
   late Directory staticDir;
@@ -106,16 +115,19 @@ void main() {
     session = ScreencastSession(page: page, relay: relay);
 
     channel = WebSocketChannel.connect(
-        Uri.parse('ws://127.0.0.1:${relay.port}/ws'));
+      Uri.parse('ws://127.0.0.1:${relay.port}/ws'),
+    );
     await channel.ready;
     queue = _Queue(channel.stream);
-    channel.sink.add(RelayEnvelope(
-      channel: RelayChannel.ctrl,
-      type: RelayMessageType.auth,
-      seq: 0,
-      ts: 0,
-      data: {'token': relay.token},
-    ).encode());
+    channel.sink.add(
+      RelayEnvelope(
+        channel: RelayChannel.ctrl,
+        type: RelayMessageType.auth,
+        seq: 0,
+        ts: 0,
+        data: {'token': relay.token},
+      ).encode(),
+    );
     final authOk = await nextEnvelope();
     expect(authOk.type, RelayMessageType.authOk);
   });
@@ -134,8 +146,9 @@ void main() {
       page.sent.map((c) => c.$1),
       containsAllInOrder(['Page.enable', 'Page.startScreencast']),
     );
-    final startParams =
-        page.sent.firstWhere((c) => c.$1 == 'Page.startScreencast').$2!;
+    final startParams = page.sent
+        .firstWhere((c) => c.$1 == 'Page.startScreencast')
+        .$2!;
     expect(startParams['format'], 'jpeg');
     expect(startParams['quality'], 60);
 
@@ -143,8 +156,11 @@ void main() {
     final meta = await nextEnvelope();
     expect(meta.channel, RelayChannel.frame);
     expect(meta.type, RelayMessageType.meta);
-    expect(jsonDecode(meta.data as String),
-        {'viewportWidth': 720, 'viewportHeight': 480, 'dpr': 1});
+    expect(jsonDecode(meta.data as String), {
+      'viewportWidth': 720,
+      'viewportHeight': 480,
+      'dpr': 1,
+    });
   });
 
   test('帧广播到 frame 通道并立即回执 ack', () async {
@@ -155,27 +171,38 @@ void main() {
     expect(frame.channel, RelayChannel.frame);
     expect(frame.type, RelayMessageType.frame);
     expect((frame.data as Map)['sessionId'], isNull);
-    expect((frame.data as Map)['metadata'], {'deviceWidth': 720, 'deviceHeight': 480});
-    await _waitFor(() =>
-        page.sent.any((c) =>
-            c.$1 == 'Page.screencastFrameAck' && c.$2?['sessionId'] == 7));
+    expect((frame.data as Map)['metadata'], {
+      'deviceWidth': 720,
+      'deviceHeight': 480,
+    });
+    await _waitFor(
+      () => page.sent.any(
+        (c) => c.$1 == 'Page.screencastFrameAck' && c.$2?['sessionId'] == 7,
+      ),
+    );
     await session.firstFrame.timeout(const Duration(seconds: 5));
     expect(session.status().framesSent, 1);
   });
 
   test('远程端 input 经校验后下发可信输入', () async {
     await session.start();
-    channel.sink.add(RelayEnvelope(
-      channel: RelayChannel.input,
-      type: RelayMessageType.input,
-      seq: 1,
-      ts: 0,
-      data: {'kind': 'mouse', 'action': 'down', 'x': 10, 'y': 20},
-    ).encode());
-    await _waitFor(() => page.sent.any((c) =>
-        c.$1 == 'Input.dispatchMouseEvent' &&
-        c.$2?['type'] == 'mousePressed' &&
-        c.$2?['x'] == 10));
+    channel.sink.add(
+      RelayEnvelope(
+        channel: RelayChannel.input,
+        type: RelayMessageType.input,
+        seq: 1,
+        ts: 0,
+        data: {'kind': 'mouse', 'action': 'down', 'x': 10, 'y': 20},
+      ).encode(),
+    );
+    await _waitFor(
+      () => page.sent.any(
+        (c) =>
+            c.$1 == 'Input.dispatchMouseEvent' &&
+            c.$2?['type'] == 'mousePressed' &&
+            c.$2?['x'] == 10,
+      ),
+    );
     expect(session.status().inputsDispatched, 1);
   });
 
@@ -184,27 +211,32 @@ void main() {
     await nextEnvelope(); // 首位客户端连接前的启动 meta
 
     final late = WebSocketChannel.connect(
-        Uri.parse('ws://127.0.0.1:${relay.port}/ws'));
+      Uri.parse('ws://127.0.0.1:${relay.port}/ws'),
+    );
     await late.ready;
     final lateQueue = _Queue(late.stream);
-    late.sink.add(RelayEnvelope(
-      channel: RelayChannel.ctrl,
-      type: RelayMessageType.auth,
-      seq: 0,
-      ts: 0,
-      data: {'token': relay.token},
-    ).encode());
+    late.sink.add(
+      RelayEnvelope(
+        channel: RelayChannel.ctrl,
+        type: RelayMessageType.auth,
+        seq: 0,
+        ts: 0,
+        data: {'token': relay.token},
+      ).encode(),
+    );
     try {
-      final authOk =
-          RelayEnvelope.decode(await lateQueue.next.timeout(
-              const Duration(seconds: 5)) as String);
+      final authOk = RelayEnvelope.decode(
+        await lateQueue.next.timeout(const Duration(seconds: 5)) as String,
+      );
       expect(authOk.type, RelayMessageType.authOk);
-      final meta = RelayEnvelope.decode(await lateQueue.next.timeout(
-          const Duration(seconds: 5)) as String);
+      final meta = RelayEnvelope.decode(
+        await lateQueue.next.timeout(const Duration(seconds: 5)) as String,
+      );
       expect(meta.channel, RelayChannel.frame);
       expect(meta.type, RelayMessageType.meta);
-      final frame = RelayEnvelope.decode(await lateQueue.next.timeout(
-          const Duration(seconds: 5)) as String);
+      final frame = RelayEnvelope.decode(
+        await lateQueue.next.timeout(const Duration(seconds: 5)) as String,
+      );
       expect(frame.type, RelayMessageType.frame);
       expect((frame.data as Map)['metadata'], {'synthetic': true});
     } finally {
@@ -230,8 +262,10 @@ void main() {
 }
 
 /// 轮询等待条件成立（跨 async 边界的断言）。
-Future<void> _waitFor(bool Function() condition,
-    {Duration timeout = const Duration(seconds: 5)}) async {
+Future<void> _waitFor(
+  bool Function() condition, {
+  Duration timeout = const Duration(seconds: 5),
+}) async {
   final deadline = DateTime.now().add(timeout);
   while (!condition()) {
     if (DateTime.now().isAfter(deadline)) {

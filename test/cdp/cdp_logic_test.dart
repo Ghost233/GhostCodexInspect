@@ -59,8 +59,18 @@ void main() {
   group('findShellTarget', () {
     const targets = [
       CdpTargetInfo(id: 'b', type: 'browser', url: '', title: ''),
-      CdpTargetInfo(id: 'w', type: 'service_worker', url: 'app://w.js', title: ''),
-      CdpTargetInfo(id: 'p', type: 'page', url: 'app://index.html', title: 'shell'),
+      CdpTargetInfo(
+        id: 'w',
+        type: 'service_worker',
+        url: 'app://w.js',
+        title: '',
+      ),
+      CdpTargetInfo(
+        id: 'p',
+        type: 'page',
+        url: 'app://index.html',
+        title: 'shell',
+      ),
     ];
 
     test('返回第一个命中的 shell target', () {
@@ -114,7 +124,10 @@ void main() {
     });
 
     test('三 shell 并存时选中主窗口（无论枚举顺序）', () {
-      expect(findShellTarget([avatar, detached, mainShell], ['app']).id, 'main');
+      expect(
+        findShellTarget([avatar, detached, mainShell], ['app']).id,
+        'main',
+      );
       expect(findShellTarget([mainShell, avatar], ['app']).id, 'main');
     });
 

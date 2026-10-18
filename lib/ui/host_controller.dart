@@ -33,8 +33,7 @@ enum SessionKind {
 }
 
 /// CDP 连接工厂（可注入替身；默认走 connectCdp 回退链）。
-typedef CdpConnector =
-    Future<CdpConnection> Function({required int debugPort});
+typedef CdpConnector = Future<CdpConnection> Function({required int debugPort});
 
 class HostController extends ChangeNotifier {
   HostController({
@@ -57,8 +56,7 @@ class HostController extends ChangeNotifier {
       // 周期刷新中转/会话快照（它们是无流的轮询型状态）。
       _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
         // 注意：构造器体内 launcher 是初始化形参（可空），需 this. 走字段。
-        if (this.launcher.relay.isRunning ||
-            sessionKind != SessionKind.none) {
+        if (this.launcher.relay.isRunning || sessionKind != SessionKind.none) {
           notifyListeners();
         }
       });
@@ -237,39 +235,40 @@ class HostController extends ChangeNotifier {
   /// 启动接管会话：attach shell 页面后按种类创建 Dom/Screencast 会话。
   ///
   /// 中转必须先运行（会话要往 dom/frame 通道广播）。
-  Future<void> startSession(SessionKind kind) => _run('启动${kind.label}会话', () async {
-    if (kind == SessionKind.none) return;
-    if (_sessionKind != SessionKind.none) {
-      throw StateError('已有${_sessionKind.label}会话在运行，先停止再切换（一期互斥约定）');
-    }
-    final relay = launcher.relay;
-    if (!relay.isRunning) {
-      throw StateError('中转未运行：请先在「中转台」启动中转');
-    }
-    final connection = await _cdpConnector(debugPort: debugPort);
-    try {
-      final targets = await connection.client.listTargets();
-      final shell = findShellTarget(targets, profile.shellUrlSchemes);
-      final page = await connection.client.attachTo(shell);
-      switch (kind) {
-        case SessionKind.dom:
-          final session = DomSession(page: page, relay: relay);
-          await session.start();
-          _domSession = session;
-        case SessionKind.screencast:
-          final session = ScreencastSession(page: page, relay: relay);
-          await session.start();
-          _screencastSession = session;
-        case SessionKind.none:
-          break;
-      }
-      _cdpConnection = connection;
-      _sessionKind = kind;
-    } on Object {
-      await connection.client.close();
-      rethrow;
-    }
-  });
+  Future<void> startSession(SessionKind kind) =>
+      _run('启动${kind.label}会话', () async {
+        if (kind == SessionKind.none) return;
+        if (_sessionKind != SessionKind.none) {
+          throw StateError('已有${_sessionKind.label}会话在运行，先停止再切换（一期互斥约定）');
+        }
+        final relay = launcher.relay;
+        if (!relay.isRunning) {
+          throw StateError('中转未运行：请先在「中转台」启动中转');
+        }
+        final connection = await _cdpConnector(debugPort: debugPort);
+        try {
+          final targets = await connection.client.listTargets();
+          final shell = findShellTarget(targets, profile.shellUrlSchemes);
+          final page = await connection.client.attachTo(shell);
+          switch (kind) {
+            case SessionKind.dom:
+              final session = DomSession(page: page, relay: relay);
+              await session.start();
+              _domSession = session;
+            case SessionKind.screencast:
+              final session = ScreencastSession(page: page, relay: relay);
+              await session.start();
+              _screencastSession = session;
+            case SessionKind.none:
+              break;
+          }
+          _cdpConnection = connection;
+          _sessionKind = kind;
+        } on Object {
+          await connection.client.close();
+          rethrow;
+        }
+      });
 
   /// 停止接管会话并断开 CDP（不杀目标应用进程）。幂等。
   Future<void> stopSession() async {

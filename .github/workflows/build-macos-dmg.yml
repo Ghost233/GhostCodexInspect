@@ -1,0 +1,74 @@
+name: Build macOS DMG (reusable)
+
+# 可复用构建管线：release.yml（v* tag）专用（本仓暂无滚动构建）。
+# 输入 version 仅用于产物命名与清单。
+#
+# 第三方 action：subosito/flutter-action 钉 Flutter SDK 3.47.7 stable
+# （与本机 ~/flutter 开发基线一致），macos-15 runner 官方支持。
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "产物命名用版本（正式发布为 pubspec version）"
+        required: false
+        type: string
+        default: latest
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      APP_NAME: GhostCodexInspect
+      FLUTTER_VERSION: "3.47.7"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        # 单包仓库：依赖解析在仓库根执行。maclauncher_sdk 为公开 git 依赖，
+        # 无凭据需求。
+        run: flutter pub get --enforce-lockfile
+
+      - name: Build macOS release
+        run: flutter build macos --release --no-pub
+
+      - name: Package DMG with hdiutil
+        # 只用系统自带 hdiutil。DMG 未签名（本仓无开发者证书）。
+        run: |
+          set -euo pipefail
+          app="build/macos/Build/Products/Release/${APP_NAME}.app"
+          test -d "$app" || { echo "::error::Build product not found: $app"; exit 1; }
+          dmg="GhostCodexInspect-${{ inputs.version }}.dmg"
+          mkdir -p dist staging
+          cp -R "$app" staging/
+          ln -s /Applications staging/Applications
+          hdiutil create \
+            -volname "GhostCodexInspect" \
+            -srcfolder staging \
+            -ov -format UDZO \
+            "dist/${dmg}"
+          rm -rf staging
+
+      - name: Generate SHA256 manifest
+        run: |
+          set -euo pipefail
+          (cd dist && shasum -a 256 *.dmg > SHA256SUMS.txt)
+          cat dist/SHA256SUMS.txt
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ghostcodexinspect-dmg-${{ inputs.version }}
+          path: dist/
+          if-no-files-found: error

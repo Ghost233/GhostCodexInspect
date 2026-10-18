@@ -131,13 +131,15 @@ class DomSession {
       relay.onClientAuthed = null;
     }
     try {
-      await page.evaluate('(function(){'
-          'var c = window.__gciCollector;'
-          'if (c && typeof c.stop === "function") { try { c.stop(); } catch (e) {} }'
-          'try { delete window.__gciCollector; } catch (e) {}'
-          'try { delete window.$kResyncFunctionName; } catch (e) {}'
-          'window.__gciCollectorInstalled = false;'
-          '})()');
+      await page.evaluate(
+        '(function(){'
+        'var c = window.__gciCollector;'
+        'if (c && typeof c.stop === "function") { try { c.stop(); } catch (e) {} }'
+        'try { delete window.__gciCollector; } catch (e) {}'
+        'try { delete window.$kResyncFunctionName; } catch (e) {}'
+        'window.__gciCollectorInstalled = false;'
+        '})()',
+      );
     } catch (_) {
       // 页面已不可达：CDP 会话死亡后注入与 binding 自动回收（实测），无需处理。
     }
@@ -200,7 +202,9 @@ class DomSession {
     // 重新 await（重连场景）。
     if (_firstFull.isCompleted) _firstFull = Completer<void>();
     try {
-      await page.evaluate('window.$kResyncFunctionName && window.$kResyncFunctionName()');
+      await page.evaluate(
+        'window.$kResyncFunctionName && window.$kResyncFunctionName()',
+      );
     } catch (e) {
       _lastError = 'resync 触发失败：$e';
     }

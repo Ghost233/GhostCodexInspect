@@ -86,7 +86,9 @@ class _HomeShellState extends State<HomeShell> {
             ),
           ),
           const VerticalDivider(width: 1),
-          Expanded(child: IndexedStack(index: _index, children: pages)),
+          Expanded(
+            child: IndexedStack(index: _index, children: pages),
+          ),
         ],
       ),
     );
@@ -175,10 +177,9 @@ class _LauncherStatusFooter extends StatelessWidget {
     final (tone, text) = switch (status?.state) {
       SdkConnectionState.connected => (StatusTone.success, 'MacLauncher 已连接'),
       SdkConnectionState.connecting => (StatusTone.warning, 'MacLauncher 连接中…'),
-      SdkConnectionState.rejected =>
-        (StatusTone.warning, 'MacLauncher 待批准或拒绝'),
-      SdkConnectionState.disconnected || null =>
-        (StatusTone.neutral, 'MacLauncher 未连接'),
+      SdkConnectionState.rejected => (StatusTone.warning, 'MacLauncher 待批准或拒绝'),
+      SdkConnectionState.disconnected ||
+      null => (StatusTone.neutral, 'MacLauncher 未连接'),
     };
     return Padding(
       padding: const EdgeInsets.all(12),
@@ -291,9 +292,8 @@ class ErrorBar extends StatelessWidget {
           Expanded(
             child: SelectableText(
               message,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurface,
-              ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: Theme.of(context).colorScheme.onSurface),
             ),
           ),
         ],

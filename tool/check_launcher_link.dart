@@ -9,8 +9,11 @@ import 'package:ghost_codex_inspect/sdk/launcher_connection.dart';
 
 Future<void> main() async {
   final conn = LauncherConnection();
-  final sub = conn.states.listen((s) => stdout.writeln(
-      '[state] ${s.state.name}${s.reason != null ? '（${s.reason}）' : ''}'));
+  final sub = conn.states.listen(
+    (s) => stdout.writeln(
+      '[state] ${s.state.name}${s.reason != null ? '（${s.reason}）' : ''}',
+    ),
+  );
   stdout.writeln('连接 MacLauncher…（未批准时会出现一次 pending-approval 提示）');
   conn.connect();
 
@@ -19,7 +22,9 @@ Future<void> main() async {
   stdout.writeln('启动中转，验证 MacLauncher 服务状态上报…');
   await conn.startRelay();
   await Future<void>.delayed(const Duration(seconds: 4));
-  stdout.writeln('中转状态：running=${conn.relay.isRunning} url=${conn.relay.accessUrl}');
+  stdout.writeln(
+    '中转状态：running=${conn.relay.isRunning} url=${conn.relay.accessUrl}',
+  );
   await conn.stopRelay();
   await Future<void>.delayed(const Duration(seconds: 2));
   stdout.writeln('中转已停。');

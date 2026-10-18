@@ -64,10 +64,7 @@ void main() {
           data: 'x',
         ).encode(),
       ) as Map;
-      expect(
-        json.keys.toSet(),
-        {'v', 'ch', 't', 'seq', 'ts', 'data'},
-      );
+      expect(json.keys.toSet(), {'v', 'ch', 't', 'seq', 'ts', 'data'});
       expect(json['v'], 1);
       expect(json['ch'], 'frame');
       expect(json['t'], 'batch');
@@ -97,8 +94,7 @@ void main() {
     });
 
     test('协议版本不符被拒绝', () {
-      final json = jsonDecode(validJson()) as Map<String, Object?>
-        ..['v'] = 2;
+      final json = jsonDecode(validJson()) as Map<String, Object?>..['v'] = 2;
       expect(RelayEnvelope.tryDecode(jsonEncode(json)), isNull);
     });
 

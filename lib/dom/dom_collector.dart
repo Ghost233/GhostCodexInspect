@@ -131,10 +131,7 @@ const String kCollectorGlue = r'''
 /// glue 的幂等守卫是 `window.__gciCollectorInstalled`。
 String buildCollectorSource(String recorderSource) {
   final stripped = recorderSource
-      .replaceAll(
-        RegExp(r'^\s*export\s*\{[^}]*\};?\s*$', multiLine: true),
-        '',
-      )
+      .replaceAll(RegExp(r'^\s*export\s*\{[^}]*\};?\s*$', multiLine: true), '')
       .replaceAll(
         RegExp(r'^[ \t]*//#[ \t]*sourceMappingURL=.*$', multiLine: true),
         '',

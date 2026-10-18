@@ -79,7 +79,11 @@ class _ConnectionCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (conn != null) ...[
-            FieldRow(label: 'CDP 实现', value: conn.implementationName, mono: true),
+            FieldRow(
+              label: 'CDP 实现',
+              value: conn.implementationName,
+              mono: true,
+            ),
             FieldRow(
               label: '降级回退',
               value: conn.fellBack
@@ -143,9 +147,15 @@ class _ShellTargetCard extends StatelessWidget {
               children: [
                 const Text('加固检测：'),
                 const SizedBox(width: 8),
-                const StatusChip(label: 'hardened runtime', tone: StatusTone.warning),
+                const StatusChip(
+                  label: 'hardened runtime',
+                  tone: StatusTone.warning,
+                ),
                 const SizedBox(width: 8),
-                const StatusChip(label: 'ElectronAsarIntegrity', tone: StatusTone.warning),
+                const StatusChip(
+                  label: 'ElectronAsarIntegrity',
+                  tone: StatusTone.warning,
+                ),
               ],
             ),
             const SizedBox(height: 4),

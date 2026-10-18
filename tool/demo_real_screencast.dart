@@ -31,8 +31,10 @@ Future<void> main() async {
   step('1/5 确认真机调试端口在监听（attach 模式，不动目标进程）');
   final launcher = AppLauncher();
   if (!await launcher.isDebugPortAlive(debugPort)) {
-    stderr.writeln('127.0.0.1:$debugPort 没有 CDP 端点。'
-        '请先双击「调试重启 ChatGPT（9238）.app」或运行 tool/restart_target_debug.sh。');
+    stderr.writeln(
+      '127.0.0.1:$debugPort 没有 CDP 端点。'
+      '请先双击「调试重启 ChatGPT（9238）.app」或运行 tool/restart_target_debug.sh。',
+    );
     exitCode = 2;
     return;
   }
@@ -49,8 +51,10 @@ Future<void> main() async {
     stdout.writeln('CDP 实现：${connection.implementationName}');
     final targets = await connection.client.listTargets();
     stdout.writeln('目标数：${targets.length}');
-    final shell =
-        findShellTarget(targets, TargetProfile.chatGpt.shellUrlSchemes);
+    final shell = findShellTarget(
+      targets,
+      TargetProfile.chatGpt.shellUrlSchemes,
+    );
     stdout.writeln('主 shell：${shell.url}');
     final page = await connection.client.attachTo(shell);
 
@@ -59,36 +63,49 @@ Future<void> main() async {
     stdout.writeln('远程端访问链接（本机浏览器也可打开）：${relay.accessUrl}');
     session = ScreencastSession(page: page, relay: relay);
     await session.start();
-    await session.firstFrame.timeout(const Duration(seconds: 15),
-        onTimeout: () {
-      throw TimeoutException('首帧 15s 未到达');
-    });
+    await session.firstFrame.timeout(
+      const Duration(seconds: 15),
+      onTimeout: () {
+        throw TimeoutException('首帧 15s 未到达');
+      },
+    );
     stdout.writeln('首帧已到达。');
 
     step('4/5 headless Chrome 只读打开远程端，切画面流模式，采样 5 秒');
-    browser = await pp.puppeteer
-        .launch(executablePath: chromePath, headless: true);
+    browser = await pp.puppeteer.launch(
+      executablePath: chromePath,
+      headless: true,
+    );
     final remote = await browser.newPage();
     // 不能用 networkIdle：远程端页面加载后立即建立常连 WebSocket，
     // 网络永不空闲（30s 导航超时事故的根因）。
     await remote.goto('${relay.accessUrl}&ro=1', wait: pp.Until.load);
-    final readOnly = await remote
-        .evaluate("!document.getElementById('ro-badge').classList.contains('hidden')");
+    final readOnly = await remote.evaluate(
+      "!document.getElementById('ro-badge').classList.contains('hidden')",
+    );
     if (readOnly != true) {
       throw StateError('ro=1 只读徽标未显示');
     }
     await remote.click('#mode-screencast');
-    await _poll(remote, "document.querySelector('#screencast-img.has-frame') !== null",
-        '远程端出图', const Duration(seconds: 10));
+    await _poll(
+      remote,
+      "document.querySelector('#screencast-img.has-frame') !== null",
+      '远程端出图',
+      const Duration(seconds: 10),
+    );
     final before = session.status().framesSent;
     await Future<void>.delayed(const Duration(seconds: 5));
     final after = session.status().framesSent;
     final fps = (after - before) / 5;
-    stdout.writeln('采样 5s：$after - $before = ${after - before} 帧'
-        '（${fps.toStringAsFixed(1)} fps）');
+    stdout.writeln(
+      '采样 5s：$after - $before = ${after - before} 帧'
+      '（${fps.toStringAsFixed(1)} fps）',
+    );
     final status = session.status();
-    stdout.writeln('会话状态：frames=${status.framesSent} '
-        'inputs=${status.inputsDispatched} lastError=${status.lastError}');
+    stdout.writeln(
+      '会话状态：frames=${status.framesSent} '
+      'inputs=${status.inputsDispatched} lastError=${status.lastError}',
+    );
     if (status.inputsDispatched != 0) {
       throw StateError('只读演示不应有任何输入下发');
     }
@@ -114,7 +131,11 @@ Future<void> main() async {
 }
 
 Future<void> _poll(
-    pp.Page page, String expression, String label, Duration timeout) async {
+  pp.Page page,
+  String expression,
+  String label,
+  Duration timeout,
+) async {
   final deadline = DateTime.now().add(timeout);
   while (DateTime.now().isBefore(deadline)) {
     if (await page.evaluate(expression) == true) return;

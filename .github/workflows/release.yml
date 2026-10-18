@@ -1,0 +1,74 @@
+name: Release
+
+# 推送 v* tag 触发正式发布：
+# 1. 校验 tag（去掉 v 前缀）与 pubspec.yaml 的 version 字段完全一致；
+# 2. 调用可复用管线构建并打包 DMG；
+# 3. 创建正式 Release，上传 DMG 与 SHA256SUMS 清单。
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-tag:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check tag matches pubspec version
+        id: check
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          pubspec_version="$(awk '/^version:/{print $2; exit}' pubspec.yaml)"
+          echo "Tag version:     ${tag}"
+          echo "pubspec version: ${pubspec_version}"
+          if [ "${tag}" != "${pubspec_version}" ]; then
+            echo "::error::Tag '${GITHUB_REF_NAME}' (version '${tag}') does not match" \
+              "pubspec.yaml version '${pubspec_version}'." \
+              "Bump pubspec.yaml or retag so the two are exactly equal."
+            exit 1
+          fi
+          echo "version=${pubspec_version}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: validate-tag
+    uses: ./.github/workflows/build-macos-dmg.yml
+    with:
+      version: ${{ needs.validate-tag.outputs.version }}
+    permissions:
+      contents: read
+
+  publish:
+    needs: [validate-tag, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ghostcodexinspect-dmg-${{ needs.validate-tag.outputs.version }}
+          path: dist
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "GhostCodexInspect ${GITHUB_REF_NAME}" \
+            --notes "GhostCodexInspect ${{ needs.validate-tag.outputs.version }}。DMG 未签名（无开发者证书），下载后请手动替换安装；完整性核对见 SHA256SUMS.txt。" \
+            dist/*

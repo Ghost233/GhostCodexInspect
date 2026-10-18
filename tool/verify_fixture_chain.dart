@@ -24,8 +24,7 @@ void step(String message) => stdout.writeln('\n=== $message');
 Future<void> main() async {
   final repoRoot = Directory.current.path;
   final fixtureDir = '$repoRoot/tool/fixture';
-  final electronAppPath =
-      '$fixtureDir/node_modules/electron/dist/Electron.app';
+  final electronAppPath = '$fixtureDir/node_modules/electron/dist/Electron.app';
 
   if (!Directory(electronAppPath).existsSync()) {
     stderr.writeln(
@@ -45,8 +44,10 @@ Future<void> main() async {
 
   // 端口预检（第二道防线）：端口已被占用时拒绝启动，宁可失败也不错连。
   if (await launcher.isDebugPortAlive(debugPort)) {
-    stderr.writeln('端口 $debugPort 已有 CDP 端点（疑似真机或残留 fixture 实例），'
-        '拒绝启动 fixture 以防错连；请先释放端口。');
+    stderr.writeln(
+      '端口 $debugPort 已有 CDP 端点（疑似真机或残留 fixture 实例），'
+      '拒绝启动 fixture 以防错连；请先释放端口。',
+    );
     exitCode = 2;
     return;
   }
@@ -73,7 +74,9 @@ Future<void> main() async {
       '${connection.fellBack ? '（回退，puppeteer 失败原因：${connection.puppeteerError}）' : ''}',
     );
 
-    step('4/5 target 枚举与 shell 过滤（scheme：${profile.shellUrlSchemes.join(', ')}）');
+    step(
+      '4/5 target 枚举与 shell 过滤（scheme：${profile.shellUrlSchemes.join(', ')}）',
+    );
     final targets = await connection.client.listTargets();
     for (final target in targets) {
       stdout.writeln('  $target');
@@ -114,7 +117,9 @@ Future<void> main() async {
     step('清理：完全停止 fixture 进程');
     await launcher.stop(profile);
     final remaining = await launcher.findRunningPids(profile);
-    stdout.writeln(remaining.isEmpty ? 'fixture 已完全退出。' : '仍有残留 pid：$remaining');
+    stdout.writeln(
+      remaining.isEmpty ? 'fixture 已完全退出。' : '仍有残留 pid：$remaining',
+    );
   }
 
   if (failed) {

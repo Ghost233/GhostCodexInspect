@@ -24,14 +24,35 @@ class InputPayloadException implements Exception {
 /// 不可打印键 → CDP dispatchKeyEvent 参数（windowsVirtualKeyCode/key/code，
 /// Enter 附带 text '\r' 以触发表单提交等默认行为）。
 const Map<String, Map<String, Object?>> kKeyEventParams = {
-  'Backspace': {'windowsVirtualKeyCode': 8, 'key': 'Backspace', 'code': 'Backspace'},
-  'Enter': {'windowsVirtualKeyCode': 13, 'key': 'Enter', 'code': 'Enter', 'text': '\r'},
+  'Backspace': {
+    'windowsVirtualKeyCode': 8,
+    'key': 'Backspace',
+    'code': 'Backspace',
+  },
+  'Enter': {
+    'windowsVirtualKeyCode': 13,
+    'key': 'Enter',
+    'code': 'Enter',
+    'text': '\r',
+  },
   'Tab': {'windowsVirtualKeyCode': 9, 'key': 'Tab', 'code': 'Tab'},
   'Escape': {'windowsVirtualKeyCode': 27, 'key': 'Escape', 'code': 'Escape'},
-  'ArrowLeft': {'windowsVirtualKeyCode': 37, 'key': 'ArrowLeft', 'code': 'ArrowLeft'},
+  'ArrowLeft': {
+    'windowsVirtualKeyCode': 37,
+    'key': 'ArrowLeft',
+    'code': 'ArrowLeft',
+  },
   'ArrowUp': {'windowsVirtualKeyCode': 38, 'key': 'ArrowUp', 'code': 'ArrowUp'},
-  'ArrowRight': {'windowsVirtualKeyCode': 39, 'key': 'ArrowRight', 'code': 'ArrowRight'},
-  'ArrowDown': {'windowsVirtualKeyCode': 40, 'key': 'ArrowDown', 'code': 'ArrowDown'},
+  'ArrowRight': {
+    'windowsVirtualKeyCode': 39,
+    'key': 'ArrowRight',
+    'code': 'ArrowRight',
+  },
+  'ArrowDown': {
+    'windowsVirtualKeyCode': 40,
+    'key': 'ArrowDown',
+    'code': 'ArrowDown',
+  },
   'Delete': {'windowsVirtualKeyCode': 46, 'key': 'Delete', 'code': 'Delete'},
   'Home': {'windowsVirtualKeyCode': 36, 'key': 'Home', 'code': 'Home'},
   'End': {'windowsVirtualKeyCode': 35, 'key': 'End', 'code': 'End'},
@@ -108,10 +129,7 @@ Future<void> dispatchInput(CdpPage page, Map<String, dynamic> payload) async {
         'type': 'rawKeyDown',
         ...params,
       });
-      await page.send('Input.dispatchKeyEvent', {
-        'type': 'keyUp',
-        ...params,
-      });
+      await page.send('Input.dispatchKeyEvent', {'type': 'keyUp', ...params});
   }
 }
 

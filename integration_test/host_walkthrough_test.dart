@@ -19,10 +19,9 @@ void main() {
   testWidgets('四模块真机走查：检测→探测→中转→DOM 会话→只读预览', (tester) async {
     final controller = HostController();
     addTearDown(controller.dispose);
-    await tester.pumpWidget(GhostCodexInspectApp(
-      autoConnect: false,
-      controller: controller,
-    ));
+    await tester.pumpWidget(
+      GhostCodexInspectApp(autoConnect: false, controller: controller),
+    );
     await tester.pumpAndSettle();
 
     String dump() =>
@@ -53,8 +52,11 @@ void main() {
     }
 
     void expectText(String substr, String why) {
-      expect(find.textContaining(substr), findsWidgets,
-          reason: '$why。${dump()}');
+      expect(
+        find.textContaining(substr),
+        findsWidgets,
+        reason: '$why。${dump()}',
+      );
     }
 
     // ── ① 启动器：检测真实目标 ──────────────────────────────

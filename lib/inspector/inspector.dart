@@ -35,7 +35,10 @@ class InspectorReport {
 
   /// 全链路健康：前提校验通过且 CDP attach + shell 枚举 + evaluate 成功。
   bool get healthy =>
-      preflight.passed && connection != null && shellTarget != null && error == null;
+      preflight.passed &&
+      connection != null &&
+      shellTarget != null &&
+      error == null;
 
   @override
   String toString() {
@@ -63,6 +66,7 @@ class Inspector {
   Inspector({this._detector = const TargetDetector()});
 
   final TargetDetector _detector;
+
   /// 仅做结构层面的前提校验（不要求目标在运行）。
   Future<PreflightReport> checkPreflight(TargetProfile profile) =>
       _detector.preflight(profile);

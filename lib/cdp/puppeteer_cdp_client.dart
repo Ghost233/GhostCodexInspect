@@ -33,7 +33,9 @@ class PuppeteerCdpClient implements CdpClient {
 
   @override
   Future<void> connect() async {
-    _browser = await pp.puppeteer.connect(browserUrl: 'http://$host:$debugPort');
+    _browser = await pp.puppeteer.connect(
+      browserUrl: 'http://$host:$debugPort',
+    );
   }
 
   @override

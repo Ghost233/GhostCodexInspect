@@ -11,7 +11,11 @@ import 'theme.dart';
 
 /// 语义状态 chip：颜色 + 文字（不单靠颜色传达状态）。
 class StatusChip extends StatelessWidget {
-  const StatusChip({super.key, required this.label, this.tone = StatusTone.neutral});
+  const StatusChip({
+    super.key,
+    required this.label,
+    this.tone = StatusTone.neutral,
+  });
 
   final String label;
   final StatusTone tone;
@@ -117,7 +121,12 @@ class MonoText extends StatelessWidget {
 
 /// 标签—值字段行（标签 120 宽，辅助文字角色）。
 class FieldRow extends StatelessWidget {
-  const FieldRow({super.key, required this.label, required this.value, this.mono = false});
+  const FieldRow({
+    super.key,
+    required this.label,
+    required this.value,
+    this.mono = false,
+  });
 
   final String label;
   final String value;
@@ -151,7 +160,12 @@ class FieldRow extends StatelessWidget {
 
 /// 复制按钮：复制 [text] 到剪贴板并 snackbar 确认。
 class CopyButton extends StatelessWidget {
-  const CopyButton({super.key, required this.text, required this.label, this.tooltip});
+  const CopyButton({
+    super.key,
+    required this.text,
+    required this.label,
+    this.tooltip,
+  });
 
   final String text;
   final String label;

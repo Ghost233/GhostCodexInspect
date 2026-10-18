@@ -215,10 +215,14 @@ Uint8List encodeBinaryEnvelope(
     ..setUint8(1, channel.index + 1)
     ..setUint8(2, type.index + 1)
     ..setUint32(3, seq, Endian.little)
-    ..setUint64(7, ts ?? DateTime.now().toUtc().millisecondsSinceEpoch,
-        Endian.little);
+    ..setUint64(
+      7,
+      ts ?? DateTime.now().toUtc().millisecondsSinceEpoch,
+      Endian.little,
+    );
   return Uint8List.fromList(
-      out.buffer.asUint8List().followedBy(payload).toList(growable: false));
+    out.buffer.asUint8List().followedBy(payload).toList(growable: false),
+  );
 }
 
 /// 解码 v2 二进制帧；格式问题抛 [RelayEnvelopeFormatException]。

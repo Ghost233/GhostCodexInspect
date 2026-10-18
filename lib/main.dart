@@ -9,7 +9,11 @@ void main() {
 }
 
 class GhostCodexInspectApp extends StatefulWidget {
-  const GhostCodexInspectApp({super.key, this.autoConnect = true, this.controller});
+  const GhostCodexInspectApp({
+    super.key,
+    this.autoConnect = true,
+    this.controller,
+  });
 
   /// 是否启动即连接 MacLauncher SDK。测试传 false 避免 SDK 重连定时器
   /// 造成 widget 测试不变量校验失败（见 #7 工单踩坑）。
@@ -23,8 +27,7 @@ class GhostCodexInspectApp extends StatefulWidget {
 }
 
 class _GhostCodexInspectAppState extends State<GhostCodexInspectApp> {
-  late final HostController _controller =
-      widget.controller ?? HostController();
+  late final HostController _controller = widget.controller ?? HostController();
 
   @override
   void initState() {

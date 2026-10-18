@@ -112,7 +112,11 @@ void main() {
       final lan = InternetAddress('192.168.1.23');
       expect(pickLanAddress([InternetAddress.loopbackIPv4, lan]), lan);
       expect(
-        pickLanAddress([InternetAddress('fe80::1'), InternetAddress('::1'), lan]),
+        pickLanAddress([
+          InternetAddress('fe80::1'),
+          InternetAddress('::1'),
+          lan,
+        ]),
         lan,
       );
     });

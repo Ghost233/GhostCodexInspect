@@ -184,7 +184,10 @@ class ScreencastSession {
         relay.broadcast(
           RelayChannel.frame,
           RelayMessageType.frame,
-          {'data': data, 'metadata': const {'synthetic': true}},
+          {
+            'data': data,
+            'metadata': const {'synthetic': true},
+          },
           // v2 客户端（#15）：JPEG 原始字节，免 base64。
           binaryPayload: base64Decode(data),
         );

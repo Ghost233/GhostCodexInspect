@@ -22,8 +22,10 @@ class _FakeCdpPage implements CdpPage {
       '{"viewportWidth":1280,"viewportHeight":800,"dpr":2}';
 
   @override
-  Future<Map<String, dynamic>> send(String method,
-      [Map<String, dynamic>? params]) async {
+  Future<Map<String, dynamic>> send(
+    String method, [
+    Map<String, dynamic>? params,
+  ]) async {
     sentMethods.add(method);
     return <String, dynamic>{};
   }
@@ -54,19 +56,19 @@ class _FakeCdpClient implements CdpClient {
 
   @override
   Future<List<CdpTargetInfo>> listTargets() async => const [
-        CdpTargetInfo(
-          id: 'shell-1',
-          type: 'page',
-          url: 'app://chatgpt.com/',
-          title: 'ChatGPT',
-        ),
-        CdpTargetInfo(
-          id: 'worker-1',
-          type: 'service_worker',
-          url: 'app://chatgpt.com/sw.js',
-          title: 'sw',
-        ),
-      ];
+    CdpTargetInfo(
+      id: 'shell-1',
+      type: 'page',
+      url: 'app://chatgpt.com/',
+      title: 'ChatGPT',
+    ),
+    CdpTargetInfo(
+      id: 'worker-1',
+      type: 'service_worker',
+      url: 'app://chatgpt.com/sw.js',
+      title: 'sw',
+    ),
+  ];
 
   @override
   Future<CdpPage> attachTo(CdpTargetInfo target) async =>

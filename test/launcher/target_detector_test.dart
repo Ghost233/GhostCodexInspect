@@ -21,9 +21,8 @@ Future<Directory> makeFakeApp(
   await Directory('${app.path}/Contents/Resources').create(recursive: true);
   await Directory('${app.path}/Contents/MacOS').create(recursive: true);
   for (final framework in frameworks) {
-    await Directory(
-      '${app.path}/Contents/Frameworks/$framework.framework',
-    ).create(recursive: true);
+    await Directory('${app.path}/Contents/Frameworks/$framework.framework')
+        .create(recursive: true);
   }
   for (final asar in asars) {
     await File('${app.path}/Contents/Resources/$asar').writeAsString('fake');
@@ -63,9 +62,8 @@ TargetProfile testProfile(
 }
 
 /// 测试用检测器：桩掉 codesign（临时假 bundle 无签名），plist 走真 plutil。
-TargetDetector testDetector() => TargetDetector(
-  codesignRunner: (_) async => null,
-);
+TargetDetector testDetector() =>
+    TargetDetector(codesignRunner: (_) async => null);
 
 void main() {
   late Directory tempDir;
@@ -96,12 +94,18 @@ void main() {
       final report = await testDetector().preflight(testProfile(app.path));
 
       expect(report.passed, isTrue, reason: report.toString());
-      expect(report.inspection.frameworkPath, contains('Codex Framework.framework'));
+      expect(
+        report.inspection.frameworkPath,
+        contains('Codex Framework.framework'),
+      );
       expect(report.inspection.principalClass, 'BrowserCrApplication');
       expect(report.inspection.asarPaths, contains('app.asar'));
       expect(report.inspection.version, '1.2.3');
       expect(report.inspection.buildNumber, '456');
-      expect(report.inspection.executablePath, endsWith('Contents/MacOS/ChatGPT'));
+      expect(
+        report.inspection.executablePath,
+        endsWith('Contents/MacOS/ChatGPT'),
+      );
     });
 
     test('标准 Electron Framework 回退判据命中 → 通过', () async {
@@ -134,7 +138,11 @@ void main() {
         plistEntries: {'CFBundleIdentifier': 'com.example.test'},
       );
       final report = await testDetector().preflight(
-        testProfile(app.path, expectedPrincipalClass: null, expectedAsarName: null),
+        testProfile(
+          app.path,
+          expectedPrincipalClass: null,
+          expectedAsarName: null,
+        ),
       );
 
       expect(report.passed, isTrue, reason: report.toString());
@@ -160,7 +168,9 @@ void main() {
       final report = await testDetector().preflight(testProfile(app.path));
 
       expect(report.passed, isFalse);
-      final check = report.checks.firstWhere((c) => c.name == 'electron-framework');
+      final check = report.checks.firstWhere(
+        (c) => c.name == 'electron-framework',
+      );
       expect(check.passed, isFalse);
       expect(check.fatal, isTrue);
     });
@@ -208,7 +218,9 @@ void main() {
       final report = await testDetector().preflight(testProfile(app.path));
 
       expect(report.passed, isTrue, reason: report.toString());
-      final check = report.checks.firstWhere((c) => c.name == 'principal-class');
+      final check = report.checks.firstWhere(
+        (c) => c.name == 'principal-class',
+      );
       expect(check.passed, isFalse);
       expect(check.fatal, isFalse);
     });
@@ -232,7 +244,8 @@ TeamIdentifier=2DC432GLL2
     });
 
     test('无 runtime flag 时 hardenedRuntime 为 false', () {
-      const output = 'CodeDirectory v=20400 size=100 flags=0x0(none)\nTeamIdentifier=ABCDE12345\n';
+      const output =
+          'CodeDirectory v=20400 size=100 flags=0x0(none)\nTeamIdentifier=ABCDE12345\n';
       final status = SignatureStatus.parse(output);
       expect(status.hardenedRuntime, isFalse);
     });

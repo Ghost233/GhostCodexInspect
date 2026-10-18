@@ -190,8 +190,12 @@ class RelayServer {
   }
 
   /// 向单个已鉴权远程端发信封（seq 由连接各自计数）。
-  void sendTo(int clientId, RelayChannel channel, RelayMessageType type,
-      Object? data) {
+  void sendTo(
+    int clientId,
+    RelayChannel channel,
+    RelayMessageType type,
+    Object? data,
+  ) {
     _clients[clientId]?.send(channel, type, data);
   }
 
@@ -200,8 +204,12 @@ class RelayServer {
   /// [binaryPayload]（工单 #15 二期）：提供时，声明了 bin.v2 能力的
   /// 客户端收 v2 二进制帧（payload 原始字节，无 JSON/base64）；未声明的
   /// 旧客户端仍收 JSON 文本帧（[data] 须保持向后兼容形态）。
-  void broadcast(RelayChannel channel, RelayMessageType type, Object? data,
-      {Uint8List? binaryPayload}) {
+  void broadcast(
+    RelayChannel channel,
+    RelayMessageType type,
+    Object? data, {
+    Uint8List? binaryPayload,
+  }) {
     for (final client in _clients.values) {
       if (!client._authed) continue;
       if (binaryPayload != null && client.supportsBinary) {
@@ -386,8 +394,10 @@ class _ClientSession {
     if (caps is List) {
       _caps.addAll(caps.whereType<String>());
     }
-    send(RelayChannel.ctrl, RelayMessageType.authOk,
-        {'clientId': id, 'caps': [kBinaryCapability]});
+    send(RelayChannel.ctrl, RelayMessageType.authOk, {
+      'clientId': id,
+      'caps': [kBinaryCapability],
+    });
     _server._notifyAuthed(id);
   }
 
@@ -404,10 +414,14 @@ class _ClientSession {
 
   /// 发送 v2 二进制帧（#15）：仅用于大流量下行，payload 为原始字节。
   void sendBinary(
-      RelayChannel channel, RelayMessageType type, Uint8List payload) {
+    RelayChannel channel,
+    RelayMessageType type,
+    Uint8List payload,
+  ) {
     if (_closed) return;
-    this.channel.sink
-        .add(encodeBinaryEnvelope(channel, type, _outSeq++, payload));
+    this.channel.sink.add(
+      encodeBinaryEnvelope(channel, type, _outSeq++, payload),
+    );
   }
 
   Future<void> close([int code = 1000, String? reason]) async {

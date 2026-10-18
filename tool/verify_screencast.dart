@@ -60,8 +60,10 @@ Future<void> main() async {
 
   // 端口预检（第二道防线）：端口已被占用时拒绝启动，宁可失败也不错连。
   if (await launcher.isDebugPortAlive(debugPort)) {
-    stderr.writeln('端口 $debugPort 已有 CDP 端点（疑似真机或残留 fixture 实例），'
-        '拒绝启动 fixture 以防错连；请先释放端口。');
+    stderr.writeln(
+      '端口 $debugPort 已有 CDP 端点（疑似真机或残留 fixture 实例），'
+      '拒绝启动 fixture 以防错连；请先释放端口。',
+    );
     exitCode = 2;
     return;
   }
@@ -84,7 +86,9 @@ Future<void> main() async {
     final connection = await connectCdp(debugPort: launch.debugPort);
     stdout.writeln('CDP 实现：${connection.implementationName}');
     final shell = findShellTarget(
-        await connection.client.listTargets(), profile.shellUrlSchemes);
+      await connection.client.listTargets(),
+      profile.shellUrlSchemes,
+    );
     final page = await connection.client.attachTo(shell);
     stdout.writeln('shell：$shell');
 
@@ -93,28 +97,38 @@ Future<void> main() async {
     stdout.writeln('远程端访问链接：${relay.accessUrl}');
     // everyNthFrame 显式 1：本 E2E 用 10fps 动画源测帧率下限，限帧会干扰断言；
     // 生产默认 4（#14，真机带宽实测结论）。
-    final session = ScreencastSession(page: page, relay: relay, everyNthFrame: 1);
+    final session = ScreencastSession(
+      page: page,
+      relay: relay,
+      everyNthFrame: 1,
+    );
     await session.start();
-    await session.firstFrame.timeout(const Duration(seconds: 15),
-        onTimeout: () {
-      throw TimeoutException('首帧 15s 未到达');
-    });
+    await session.firstFrame.timeout(
+      const Duration(seconds: 15),
+      onTimeout: () {
+        throw TimeoutException('首帧 15s 未到达');
+      },
+    );
     stdout.writeln('首帧已到达（startScreencast + 帧订阅正常）');
 
     step('4/7 Phase A：Dart WS 客户端收 meta + 动画期间测帧率');
     final client = WebSocketChannel.connect(
-        Uri.parse('ws://127.0.0.1:${relay.port}/ws'));
+      Uri.parse('ws://127.0.0.1:${relay.port}/ws'),
+    );
     await client.ready;
     final incoming = StreamController<RelayEnvelope>.broadcast();
-    client.stream
-        .listen((e) => incoming.add(RelayEnvelope.decode(e as String)));
-    client.sink.add(RelayEnvelope(
-      channel: RelayChannel.ctrl,
-      type: RelayMessageType.auth,
-      seq: 0,
-      ts: 0,
-      data: {'token': relay.token},
-    ).encode());
+    client.stream.listen(
+      (e) => incoming.add(RelayEnvelope.decode(e as String)),
+    );
+    client.sink.add(
+      RelayEnvelope(
+        channel: RelayChannel.ctrl,
+        type: RelayMessageType.auth,
+        seq: 0,
+        ts: 0,
+        data: {'token': relay.token},
+      ).encode(),
+    );
 
     // 晚到客户端补种：authOk 后应收 meta + 合成帧。
     final seeded = await incoming.stream
@@ -123,16 +137,20 @@ Future<void> main() async {
         .timeout(const Duration(seconds: 10));
     final types = seeded.map((e) => (e.channel, e.type)).toList();
     stdout.writeln('补种信封：$types');
-    if (!types.any((t) => t.$1 == RelayChannel.frame && t.$2 == RelayMessageType.meta)) {
+    if (!types.any(
+      (t) => t.$1 == RelayChannel.frame && t.$2 == RelayMessageType.meta,
+    )) {
       throw StateError('Phase A 失败：补种缺少 frame/meta');
     }
-    if (!types.any((t) => t.$1 == RelayChannel.frame && t.$2 == RelayMessageType.frame)) {
+    if (!types.any(
+      (t) => t.$1 == RelayChannel.frame && t.$2 == RelayMessageType.frame,
+    )) {
       throw StateError('Phase A 失败：补种缺少合成帧');
     }
     final meta = seeded.firstWhere(
-        (e) => e.channel == RelayChannel.frame && e.type == RelayMessageType.meta);
-    final viewport =
-        jsonDecode(meta.data as String) as Map<String, dynamic>;
+      (e) => e.channel == RelayChannel.frame && e.type == RelayMessageType.meta,
+    );
+    final viewport = jsonDecode(meta.data as String) as Map<String, dynamic>;
     stdout.writeln('视口元信息：$viewport');
 
     // 动画 3s 测帧率：页面内容变化驱动 screencast 产帧。
@@ -155,25 +173,31 @@ Future<void> main() async {
     final fps = frameCount / 3;
     stdout.writeln('动画 3s 内收到 $frameCount 帧（≈${fps.toStringAsFixed(1)}fps）');
     if (fps < 10) {
-      throw StateError('Phase A 失败：帧率 ${fps.toStringAsFixed(1)}fps < 10fps 验收线');
+      throw StateError(
+        'Phase A 失败：帧率 ${fps.toStringAsFixed(1)}fps < 10fps 验收线',
+      );
     }
 
     step('5/7 Phase A：input 通道点击按钮回灌 fixture');
-    final btnRect = jsonDecode(await page.evaluate(
-            'JSON.stringify(document.getElementById("counter-btn").getBoundingClientRect())')
-        as String) as Map<String, dynamic>;
+    final btnRect = jsonDecode(
+      await page.evaluate(
+        'JSON.stringify(document.getElementById("counter-btn").getBoundingClientRect())',
+      ) as String,
+    ) as Map<String, dynamic>;
     final btnX = (btnRect['left'] as num) + (btnRect['width'] as num) / 2;
     final btnY = (btnRect['top'] as num) + (btnRect['height'] as num) / 2;
     final titleBefore = await page.evaluate('document.title');
     var seq = 1;
     void sendInput(Object? data) {
-      client.sink.add(RelayEnvelope(
-        channel: RelayChannel.input,
-        type: RelayMessageType.input,
-        seq: seq++,
-        ts: 0,
-        data: data,
-      ).encode());
+      client.sink.add(
+        RelayEnvelope(
+          channel: RelayChannel.input,
+          type: RelayMessageType.input,
+          seq: seq++,
+          ts: 0,
+          data: data,
+        ).encode(),
+      );
     }
 
     sendInput({'kind': 'mouse', 'action': 'down', 'x': btnX, 'y': btnY});
@@ -184,7 +208,9 @@ Future<void> main() async {
       (v) => v != titleBefore,
       '远程点击后 fixture 标题应变化（$titleBefore → Fixture clicks=N）',
     );
-    stdout.writeln('点击回灌成功：$titleBefore → ${await page.evaluate('document.title')}');
+    stdout.writeln(
+      '点击回灌成功：$titleBefore → ${await page.evaluate('document.title')}',
+    );
     await client.sink.close();
 
     step('6/7 Phase B：headless Chrome 打开远程端，切画面流模式出图');
@@ -262,12 +288,16 @@ Future<void> main() async {
     stdout.writeln('远端画面点击成功：${await page.evaluate('document.title')}');
 
     // 打字：点中输入框 → host 容器获得焦点 → keydown 转发。
-    final inputRect = jsonDecode(await page.evaluate(
-            'JSON.stringify(document.getElementById("echo-input").getBoundingClientRect())')
-        as String) as Map<String, dynamic>;
-    final inputX = (imgState['left'] as num) +
+    final inputRect = jsonDecode(
+      await page.evaluate(
+        'JSON.stringify(document.getElementById("echo-input").getBoundingClientRect())',
+      ) as String,
+    ) as Map<String, dynamic>;
+    final inputX =
+        (imgState['left'] as num) +
         ((inputRect['left'] as num) + (inputRect['width'] as num) / 2) * scale;
-    final inputY = (imgState['top'] as num) +
+    final inputY =
+        (imgState['top'] as num) +
         ((inputRect['top'] as num) + (inputRect['height'] as num) / 2) * scale;
     await remote.mouse.click(pp.Point(inputX, inputY));
     await remote.keyboard.type('ok');
@@ -277,12 +307,15 @@ Future<void> main() async {
       (v) => v is String && v.contains('ok'),
       '远程打字后 echo-input 应包含 ok',
     );
-    stdout.writeln('远程打字成功：echo-input=${await page.evaluate(
-        'document.getElementById("echo-input").value')}');
+    stdout.writeln(
+      '远程打字成功：echo-input=${await page.evaluate('document.getElementById("echo-input").value')}',
+    );
 
     final status = session.status();
-    stdout.writeln('\n画面流会话状态：frames=${status.framesSent} '
-        'inputs=${status.inputsDispatched} lastError=${status.lastError}');
+    stdout.writeln(
+      '\n画面流会话状态：frames=${status.framesSent} '
+      'inputs=${status.inputsDispatched} lastError=${status.lastError}',
+    );
     stdout.writeln('\n=== 全部断言通过：画面流模式端到端链路 OK');
   } catch (e) {
     failed = true;

@@ -193,8 +193,7 @@ class RawCdpPage implements CdpPage {
         return ScreencastFrameData(
           data: params['data'] as String? ?? '',
           sessionId: params['sessionId'] as int? ?? 0,
-          metadata:
-              (params['metadata'] as Map?)?.cast<String, dynamic>() ?? {},
+          metadata: (params['metadata'] as Map?)?.cast<String, dynamic>() ?? {},
         );
       });
 

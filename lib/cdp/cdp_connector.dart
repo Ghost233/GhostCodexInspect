@@ -35,7 +35,10 @@ Future<CdpConnection> connectCdp({
   bool preferRaw = false,
 }) async {
   if (!preferRaw) {
-    final puppeteerClient = PuppeteerCdpClient(debugPort: debugPort, host: host);
+    final puppeteerClient = PuppeteerCdpClient(
+      debugPort: debugPort,
+      host: host,
+    );
     try {
       await puppeteerClient.connect();
       // 实测兼容性检查：连接成功不代表 target 枚举可用，先枚举一次。

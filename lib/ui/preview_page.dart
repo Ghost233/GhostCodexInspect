@@ -28,9 +28,7 @@ class PreviewPage extends StatelessWidget {
         final url = controller.previewUrl?.toString();
         return PageScaffold(
           title: '远程视图',
-          actions: [
-            if (url != null) CopyButton(text: url, label: '复制预览地址'),
-          ],
+          actions: [if (url != null) CopyButton(text: url, label: '复制预览地址')],
           children: [
             SectionCard(
               title: '本机只读预览',
@@ -40,7 +38,9 @@ class PreviewPage extends StatelessWidget {
                   const SizedBox(width: 8),
                   StatusChip(
                     label: controller.sessionKind.label,
-                    tone: sessionActive ? StatusTone.success : StatusTone.neutral,
+                    tone: sessionActive
+                        ? StatusTone.success
+                        : StatusTone.neutral,
                   ),
                 ],
               ),

@@ -35,7 +35,8 @@ class LauncherPage extends StatelessWidget {
             ),
           ],
           children: [
-            if (controller.lastError != null) ErrorBar(message: controller.lastError!),
+            if (controller.lastError != null)
+              ErrorBar(message: controller.lastError!),
             _TargetCard(controller: controller),
             PreflightChecksCard(report: controller.preflight),
             _RunStateCard(controller: controller),
@@ -94,9 +95,15 @@ class _TargetCard extends StatelessWidget {
                 padding: EdgeInsets.only(top: 8),
                 child: Row(
                   children: [
-                    StatusChip(label: '加固：hardened runtime', tone: StatusTone.warning),
+                    StatusChip(
+                      label: '加固：hardened runtime',
+                      tone: StatusTone.warning,
+                    ),
                     SizedBox(width: 8),
-                    StatusChip(label: 'ElectronAsarIntegrity', tone: StatusTone.warning),
+                    StatusChip(
+                      label: 'ElectronAsarIntegrity',
+                      tone: StatusTone.warning,
+                    ),
                   ],
                 ),
               ),
@@ -161,10 +168,8 @@ class _CheckRow extends StatelessWidget {
             width: 180,
             child: Text(
               check.name,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                fontFamily: 'Menlo',
-                fontSize: 12,
-              ),
+              style: Theme.of(context).textTheme.bodyMedium
+                  ?.copyWith(fontFamily: 'Menlo', fontSize: 12),
             ),
           ),
           const SizedBox(width: 12),
@@ -293,7 +298,9 @@ class _RunStateCard extends StatelessWidget {
                 ),
                 label: Text(
                   '停止',
-                  style: TextStyle(color: statusToneColor(context, StatusTone.error)),
+                  style: TextStyle(
+                    color: statusToneColor(context, StatusTone.error),
+                  ),
                 ),
               ),
             ],

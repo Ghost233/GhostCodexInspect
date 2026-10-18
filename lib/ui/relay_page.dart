@@ -110,7 +110,9 @@ class _ServerCard extends StatelessWidget {
                   GestureDetector(
                     onTap: controller.busy
                         ? null
-                        : () => controller.setLanAccess(!controller.allowLanAccess),
+                        : () => controller.setLanAccess(
+                            !controller.allowLanAccess,
+                          ),
                     child: const Text('允许局域网访问'),
                   ),
                 ],
@@ -183,7 +185,9 @@ class _SessionCard extends StatelessWidget {
       title: '中继会话',
       trailing: StatusChip(
         label: kind.label,
-        tone: kind == SessionKind.none ? StatusTone.neutral : StatusTone.success,
+        tone: kind == SessionKind.none
+            ? StatusTone.neutral
+            : StatusTone.success,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -206,7 +210,7 @@ class _SessionCard extends StatelessWidget {
               value: status.lastFrameAt == null
                   ? '—'
                   : DateTime.fromMillisecondsSinceEpoch(status.lastFrameAt!)
-                      .toIso8601String(),
+                        .toIso8601String(),
               mono: true,
             ),
             FieldRow(label: '最近错误', value: status.lastError ?? '无'),
@@ -279,9 +283,7 @@ class _ClientsCard extends StatelessWidget {
                               : StatusTone.warning,
                         ),
                         const SizedBox(width: 8),
-                        Expanded(
-                          child: MonoText('client #${client.id}'),
-                        ),
+                        Expanded(child: MonoText('client #${client.id}')),
                         StatusChip(
                           label: client.authed ? '已鉴权' : '待鉴权',
                           tone: client.authed

@@ -7,7 +7,10 @@ import 'package:ghost_codex_inspect/relay/compression.dart';
 void main() {
   group('maybeCompressPayload / maybeDecompressPayload', () {
     test('小于阈值原样透传', () {
-      final small = {'type': 4, 'data': {'width': 720}};
+      final small = {
+        'type': 4,
+        'data': {'width': 720},
+      };
       expect(maybeCompressPayload(small), same(small));
       expect(maybeDecompressPayload(small), same(small));
     });
@@ -38,7 +41,10 @@ void main() {
     });
 
     test('数组 payload（batch）往返', () {
-      final batch = List.generate(200, (i) => {'type': 3, 'i': i, 'pad': 'x' * 50});
+      final batch = List.generate(
+        200,
+        (i) => {'type': 3, 'i': i, 'pad': 'x' * 50},
+      );
       final wrapped = maybeCompressPayload(batch, minBytes: 0);
       expect(maybeDecompressPayload(wrapped), batch);
     });
@@ -50,7 +56,8 @@ void main() {
 
     test('损坏包装抛 FormatException', () {
       expect(
-        () => maybeDecompressPayload({'z': 'fflate', 'b64': '!!!not-base64!!!'}),
+        () =>
+            maybeDecompressPayload({'z': 'fflate', 'b64': '!!!not-base64!!!'}),
         throwsFormatException,
       );
       expect(

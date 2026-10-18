@@ -28,8 +28,12 @@ void main() {
 
     test('头部布局：版本/通道 id/类型 id/seq ts 小端', () {
       final raw = encodeBinaryEnvelope(
-          RelayChannel.dom, RelayMessageType.batch, 0x01020304,
-          Uint8List(0), ts: 5);
+        RelayChannel.dom,
+        RelayMessageType.batch,
+        0x01020304,
+        Uint8List(0),
+        ts: 5,
+      );
       expect(raw[0], 2); // 版本
       expect(raw[1], 1); // dom
       expect(raw[2], 4); // batch
@@ -39,19 +43,31 @@ void main() {
 
     test('坏帧拒绝：过短/坏版本/未知通道/未知类型', () {
       Uint8List base() => encodeBinaryEnvelope(
-          RelayChannel.dom, RelayMessageType.full, 0, Uint8List(0));
+        RelayChannel.dom,
+        RelayMessageType.full,
+        0,
+        Uint8List(0),
+      );
 
-      expect(() => decodeBinaryEnvelope(Uint8List(3)),
-          throwsA(isA<RelayEnvelopeFormatException>()));
+      expect(
+        () => decodeBinaryEnvelope(Uint8List(3)),
+        throwsA(isA<RelayEnvelopeFormatException>()),
+      );
       final badVersion = base()..[0] = 9;
-      expect(() => decodeBinaryEnvelope(badVersion),
-          throwsA(isA<RelayEnvelopeFormatException>()));
+      expect(
+        () => decodeBinaryEnvelope(badVersion),
+        throwsA(isA<RelayEnvelopeFormatException>()),
+      );
       final badChannel = base()..[1] = 99;
-      expect(() => decodeBinaryEnvelope(badChannel),
-          throwsA(isA<RelayEnvelopeFormatException>()));
+      expect(
+        () => decodeBinaryEnvelope(badChannel),
+        throwsA(isA<RelayEnvelopeFormatException>()),
+      );
       final badType = base()..[2] = 99;
-      expect(() => decodeBinaryEnvelope(badType),
-          throwsA(isA<RelayEnvelopeFormatException>()));
+      expect(
+        () => decodeBinaryEnvelope(badType),
+        throwsA(isA<RelayEnvelopeFormatException>()),
+      );
     });
   });
 
@@ -81,28 +97,32 @@ void main() {
 
     /// 连接+鉴权，返回 (channel, 广播流)。WS 流是单订阅的：authOk 等待
     /// 与后续收帧必须共用 asBroadcastStream 转化后的流。
-    Future<(WebSocketChannel, Stream<dynamic>)> connectAndAuth(
-        {List<String>? caps}) async {
+    Future<(WebSocketChannel, Stream<dynamic>)> connectAndAuth({
+      List<String>? caps,
+    }) async {
       final channel = WebSocketChannel.connect(wsUri());
       await channel.ready;
       final stream = channel.stream.asBroadcastStream();
-      channel.sink.add(RelayEnvelope(
-        channel: RelayChannel.ctrl,
-        type: RelayMessageType.auth,
-        seq: 0,
-        ts: 0,
-        data: {'token': server.token, 'caps': ?caps},
-      ).encode());
+      channel.sink.add(
+        RelayEnvelope(
+          channel: RelayChannel.ctrl,
+          type: RelayMessageType.auth,
+          seq: 0,
+          ts: 0,
+          data: {'token': server.token, 'caps': ?caps},
+        ).encode(),
+      );
       // 等 authOk
-      final authOk = jsonDecode(await stream
-          .firstWhere((e) => e is String && e.contains('"authOk"'))
-          .timeout(const Duration(seconds: 5))) as Map<String, Object?>;
+      final authOk = jsonDecode(
+        await stream
+            .firstWhere((e) => e is String && e.contains('"authOk"'))
+            .timeout(const Duration(seconds: 5)),
+      ) as Map<String, Object?>;
       expect((authOk['data'] as Map)['caps'], contains(kBinaryCapability));
       return (channel, stream);
     }
 
-    test('声明 bin.v2 的客户端收二进制帧，未声明的旧客户端回落文本帧',
-        () async {
+    test('声明 bin.v2 的客户端收二进制帧，未声明的旧客户端回落文本帧', () async {
       final (v2, v2Stream) = await connectAndAuth(caps: [kBinaryCapability]);
       final (v1, v1Stream) = await connectAndAuth();
 
@@ -110,12 +130,10 @@ void main() {
       final v1First = v1Stream.first.timeout(const Duration(seconds: 5));
 
       final jpeg = Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3]);
-      server.broadcast(
-        RelayChannel.frame,
-        RelayMessageType.frame,
-        {'data': base64Encode(jpeg), 'metadata': const {}},
-        binaryPayload: jpeg,
-      );
+      server.broadcast(RelayChannel.frame, RelayMessageType.frame, {
+        'data': base64Encode(jpeg),
+        'metadata': const {},
+      }, binaryPayload: jpeg);
 
       final v2Raw = await v2First;
       expect(v2Raw, isA<Uint8List>());

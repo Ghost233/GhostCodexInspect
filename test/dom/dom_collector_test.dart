@@ -6,7 +6,8 @@ import 'package:ghost_codex_inspect/dom/dom_collector.dart';
 void main() {
   group('buildCollectorSource', () {
     test('剥掉 ESM export 与 sourceMappingURL 后拼接 glue', () {
-      const recorder = 'function record(){}\n'
+      const recorder =
+          'function record(){}\n'
           '//# sourceMappingURL=record.js.map\n'
           'export { record };\n';
       final source = buildCollectorSource(recorder);
@@ -21,9 +22,11 @@ void main() {
       // 真机主 shell 页面被 rrweb 干跑探针 evaluate 过剥离 bundle 后，
       // 顶层 let/const 永久留在全局词法环境；不包 IIFE 再注入即抛
       // "Identifier 'testableAccessors' has already been declared"。
-      final source = buildCollectorSource('let testableAccessors = 1;\n'
-          'function record(){}\n'
-          'export { record };\n');
+      final source = buildCollectorSource(
+        'let testableAccessors = 1;\n'
+        'function record(){}\n'
+        'export { record };\n',
+      );
       expect(source, startsWith(';(function () {'));
       expect(source.trimRight(), endsWith('})();'));
     });
@@ -39,20 +42,23 @@ void main() {
       final source = buildCollectorSource(recorder);
       expect(
         source,
-        contains("const js = '(function(){\\n//# sourceMappingURL=w.js.map\\n';"),
+        contains(
+          "const js = '(function(){\\n//# sourceMappingURL=w.js.map\\n';",
+        ),
       );
       expect(source, isNot(contains('export { record }')));
     });
   });
 
   group('classifyEventBatch', () {
-    Map<String, dynamic> ev(int type) =>
-        <String, dynamic>{'type': type, 'data': <String, dynamic>{}, 'timestamp': 1};
+    Map<String, dynamic> ev(int type) => <String, dynamic>{
+      'type': type,
+      'data': <String, dynamic>{},
+      'timestamp': 1,
+    };
 
     test('按 type 分流 meta/full/inc', () {
-      final payload = jsonEncode([
-        ev(4), ev(2), ev(3), ev(3), ev(5), ev(6),
-      ]);
+      final payload = jsonEncode([ev(4), ev(2), ev(3), ev(3), ev(5), ev(6)]);
       final c = classifyEventBatch(payload);
       expect(c.meta, hasLength(1));
       expect(c.full, hasLength(1));

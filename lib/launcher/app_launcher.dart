@@ -147,7 +147,12 @@ class AppLauncher {
     }
 
     await waitForDebugPort(port, timeout: readyTimeout);
-    return LaunchResult(profile: profile, pid: pid, debugPort: port, args: args);
+    return LaunchResult(
+      profile: profile,
+      pid: pid,
+      debugPort: port,
+      args: args,
+    );
   }
 
   /// 重启 = 停止后带参启动。
@@ -208,8 +213,9 @@ class AppLauncher {
   }) async {
     final client = _httpClientFactory();
     try {
-      final request =
-          await client.get('127.0.0.1', port, '/json/version').timeout(timeout);
+      final request = await client
+          .get('127.0.0.1', port, '/json/version')
+          .timeout(timeout);
       final response = await request.close().timeout(timeout);
       await response.drain<void>();
       return response.statusCode == 200;

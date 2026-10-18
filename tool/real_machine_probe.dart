@@ -78,7 +78,8 @@ Future<void> main(List<String> args) async {
   final fixtureDir = '$repoRoot/tool/fixture';
   final profile = fixtureMode
       ? TargetProfile.electronFixture(
-          electronAppPath: '$fixtureDir/node_modules/electron/dist/Electron.app',
+          electronAppPath:
+              '$fixtureDir/node_modules/electron/dist/Electron.app',
           fixtureDir: fixtureDir,
         )
       : TargetProfile.chatGpt;
@@ -90,8 +91,10 @@ Future<void> main(List<String> args) async {
   if (fixtureMode) {
     // 端口预检（第二道防线）：端口已被占用时拒绝启动，宁可失败也不错连。
     if (await launcher.isDebugPortAlive(debugPort)) {
-      stderr.writeln('端口 $debugPort 已有 CDP 端点（疑似真机或残留 fixture 实例），'
-          '拒绝启动 fixture 以防错连；请先释放端口。');
+      stderr.writeln(
+        '端口 $debugPort 已有 CDP 端点（疑似真机或残留 fixture 实例），'
+        '拒绝启动 fixture 以防错连；请先释放端口。',
+      );
       exitCode = 2;
       return;
     }
@@ -136,8 +139,10 @@ Future<void> main(List<String> args) async {
           '${connection!.fellBack ? '（puppeteer 失败回退：${connection!.puppeteerError}）' : ''}';
     });
     if (connection == null) {
-      throw StateError('CDP 连接失败，后续探针无法执行。确认目标已带 '
-          '--remote-debugging-port=$debugPort 运行。');
+      throw StateError(
+        'CDP 连接失败，后续探针无法执行。确认目标已带 '
+        '--remote-debugging-port=$debugPort 运行。',
+      );
     }
 
     // ---- 3. targets ----
@@ -151,7 +156,8 @@ Future<void> main(List<String> args) async {
         byType[t.type] = (byType[t.type] ?? 0) + 1;
       }
       for (final t in targets) {
-        final isShell = t.type == 'page' &&
+        final isShell =
+            t.type == 'page' &&
             profile.shellUrlSchemes.any((s) => t.url.startsWith('$s://'));
         if (isShell) shellTargets.add(t);
         stdout.writeln(
@@ -163,12 +169,14 @@ Future<void> main(List<String> args) async {
       targetsR.metrics['shellCount'] = shellTargets.length;
       if (shellTargets.isEmpty) {
         targetsR.passed = false;
-        targetsR.detail = '未找到 shell 页面（scheme：'
+        targetsR.detail =
+            '未找到 shell 页面（scheme：'
             '${profile.shellUrlSchemes.join(', ')}）。真实应用的 shell URL '
             'scheme 可能与 #2 记录不符——把上面枚举输出贴进 #4。';
         return;
       }
-      targetsR.detail = '${targets.length} 个 target，shell 命中 '
+      targetsR.detail =
+          '${targets.length} 个 target，shell 命中 '
           '${shellTargets.length} 个';
     });
     if (shellTargets.isEmpty) {
@@ -230,8 +238,7 @@ JSON.stringify({
       final received = Completer<String>();
       final sub = bindingStream.listen(received.complete);
       await page.evaluate("window.__gciProbeBinding('ping')");
-      final payload =
-          await received.future.timeout(const Duration(seconds: 5));
+      final payload = await received.future.timeout(const Duration(seconds: 5));
       await sub.cancel();
       await page.send('Runtime.removeBinding', {'name': '__gciProbeBinding'});
       injectR.metrics['bindingPayload'] = payload;
@@ -256,8 +263,9 @@ JSON.stringify({
 })();
 ''');
       await page.send('Input.insertText', {'text': 'probe'});
-      final value = await page
-          .evaluate("document.getElementById('__gciProbeInput').value");
+      final value = await page.evaluate(
+        "document.getElementById('__gciProbeInput').value",
+      );
       await page.evaluate(
         "document.getElementById('__gciProbeInput').remove()",
       );
@@ -296,7 +304,8 @@ JSON.stringify((function () {
         }
         inputR.detail = 'insertText OK；fixture 点击回灌 OK（$title）';
       } else {
-        inputR.detail = 'insertText OK；dispatchMouseEvent 真机跳过'
+        inputR.detail =
+            'insertText OK；dispatchMouseEvent 真机跳过'
             '（点击真实 UI 太危险，fixture 已证明，见 #11/#12）';
       }
     });
@@ -327,9 +336,7 @@ $stripped
 ''');
       // fixture 模式下点一下按钮制造增量事件。
       if (fixtureMode) {
-        await page.evaluate(
-          "document.getElementById('counter-btn').click()",
-        );
+        await page.evaluate("document.getElementById('counter-btn').click()");
       }
       await Future<void>.delayed(const Duration(seconds: 3));
       final stats = await page.evaluate(
@@ -368,7 +375,8 @@ window.__gciProbeAnim = setInterval(function () {
       final sub = page.screencastFrames.listen((f) {
         frames.add(f);
         unawaited(
-          page.send('Page.screencastFrameAck', {'sessionId': f.sessionId})
+          page
+              .send('Page.screencastFrameAck', {'sessionId': f.sessionId})
               .catchError((Object _) => <String, dynamic>{}),
         );
       });
@@ -404,7 +412,8 @@ window.__gciProbeAnim = setInterval(function () {
       castR.metrics['q60'] = q60;
       castR.metrics['q40'] = q40;
       castR.metrics['q80'] = q80;
-      castR.detail = 'q60: ${q60['fps']}fps ${q60['kbps']}KB/s；'
+      castR.detail =
+          'q60: ${q60['fps']}fps ${q60['kbps']}KB/s；'
           'q40: ${q40['kbps']}KB/s；q80: ${q80['kbps']}KB/s';
       stdout.writeln('  q60=$q60\n  q40=$q40\n  q80=$q80');
       if ((q60['frames'] as int) == 0) {
@@ -425,7 +434,8 @@ window.__gciProbeAnim = setInterval(function () {
       final data = shot['data'] as String? ?? '';
       shotR.metrics['latencyMs'] = sw.elapsedMilliseconds;
       shotR.metrics['bytes'] = data.length * 3 ~/ 4;
-      shotR.detail = '延迟 ${sw.elapsedMilliseconds}ms，'
+      shotR.detail =
+          '延迟 ${sw.elapsedMilliseconds}ms，'
           '约 ${data.length * 3 ~/ 4 ~/ 1024}KB（数据已丢弃，未持久化）';
     });
   } finally {
@@ -439,7 +449,8 @@ window.__gciProbeAnim = setInterval(function () {
 
   // ---- 报告 ----
   final now = DateTime.now();
-  final ts = '${now.year}${now.month.toString().padLeft(2, '0')}'
+  final ts =
+      '${now.year}${now.month.toString().padLeft(2, '0')}'
       '${now.day.toString().padLeft(2, '0')}-'
       '${now.hour.toString().padLeft(2, '0')}'
       '${now.minute.toString().padLeft(2, '0')}'
@@ -448,7 +459,9 @@ window.__gciProbeAnim = setInterval(function () {
     ..writeln('# 一次性真机实测探针报告（#$ts）')
     ..writeln()
     ..writeln('- 目标：${profile.displayName}（${profile.appPath}）')
-    ..writeln('- 模式：${fixtureMode ? 'fixture 自检' : '真机 attach（只读+自清理注入，未重启目标）'}')
+    ..writeln(
+      '- 模式：${fixtureMode ? 'fixture 自检' : '真机 attach（只读+自清理注入，未重启目标）'}',
+    )
     ..writeln('- 调试端口：$debugPort')
     ..writeln()
     ..writeln('| 探针 | 结果 | 说明 |')
@@ -457,7 +470,9 @@ window.__gciProbeAnim = setInterval(function () {
   for (final r in results) {
     final mark = r.passed == true ? '✅' : '❌';
     if (r.passed != true) failed = true;
-    buffer.writeln('| ${r.name} | $mark | ${r.detail.replaceAll('|', '\\|')} |');
+    buffer.writeln(
+      '| ${r.name} | $mark | ${r.detail.replaceAll('|', '\\|')} |',
+    );
   }
   buffer
     ..writeln()

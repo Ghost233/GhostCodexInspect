@@ -31,7 +31,10 @@ const int kCompressionMinBytes = 4096;
 /// 压缩封装 [data]（任意可 JSON 序列化的 payload）。
 ///
 /// 小于 [minBytes] 时原样返回 [data]；否则返回压缩包装 Map。
-Object? maybeCompressPayload(Object? data, {int minBytes = kCompressionMinBytes}) {
+Object? maybeCompressPayload(
+  Object? data, {
+  int minBytes = kCompressionMinBytes,
+}) {
   if (data == null) return null;
   final bytes = utf8.encode(jsonEncode(data));
   if (bytes.length < minBytes) return data;

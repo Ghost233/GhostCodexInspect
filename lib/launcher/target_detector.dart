@@ -79,12 +79,18 @@ class SignatureStatus {
     // flags 出现在 `CodeDirectory ... flags=0x10000(runtime) ...` 行中间，
     // 不能用行首锚定；单独提取括号内的 flag 描述。
     final flagsDesc =
-        RegExp(r'flags=0x[0-9a-fA-F]+\(([^)]*)\)').firstMatch(codesignOutput)?.group(1) ?? '';
+        RegExp(r'flags=0x[0-9a-fA-F]+\(([^)]*)\)')
+            .firstMatch(codesignOutput)
+            ?.group(1) ??
+        '';
     return SignatureStatus(
       checked: true,
       teamId: pick('TeamIdentifier'),
       authority: pick('Authority'),
-      hardenedRuntime: flagsDesc.split(',').map((f) => f.trim()).contains('runtime'),
+      hardenedRuntime: flagsDesc
+          .split(',')
+          .map((f) => f.trim())
+          .contains('runtime'),
     );
   }
 }
@@ -133,7 +139,11 @@ class TargetInspection {
 
 /// 前提校验报告。
 class PreflightReport {
-  const PreflightReport({required this.profile, required this.inspection, required this.checks});
+  const PreflightReport({
+    required this.profile,
+    required this.inspection,
+    required this.checks,
+  });
 
   final TargetProfile profile;
   final TargetInspection inspection;
@@ -149,7 +159,10 @@ class PreflightReport {
 }
 
 /// 读取 Info.plist 单个键的可注入函数（默认实现走 `plutil`）。
-typedef PlistValueReader = Future<String?> Function(String plistPath, String key);
+typedef PlistValueReader = Future<String?> Function(
+  String plistPath,
+  String key,
+);
 
 /// 执行 `codesign -dv` 的可注入函数（返回其 stderr 文本）。
 typedef CodesignRunner = Future<String?> Function(String appPath);
@@ -157,10 +170,14 @@ typedef CodesignRunner = Future<String?> Function(String appPath);
 /// 默认 plist 读取：`plutil -extract <key> raw`。
 Future<String?> plutilRead(String plistPath, String key) async {
   try {
-    final result = await Process.run(
-      'plutil',
-      ['-extract', key, 'raw', '-o', '-', plistPath],
-    );
+    final result = await Process.run('plutil', [
+      '-extract',
+      key,
+      'raw',
+      '-o',
+      '-',
+      plistPath,
+    ]);
     if (result.exitCode != 0) return null;
     final value = '${result.stdout}'.trim();
     return value.isEmpty ? null : value;
@@ -211,7 +228,8 @@ class TargetDetector {
     // 框架判据：按候选顺序命中第一个存在的 <name>.framework。
     String? frameworkPath;
     for (final name in profile.frameworkNames) {
-      final candidate = '${profile.appPath}/Contents/Frameworks/$name.framework';
+      final candidate =
+          '${profile.appPath}/Contents/Frameworks/$name.framework';
       if (Directory(candidate).existsSync()) {
         frameworkPath = candidate;
         break;
@@ -229,7 +247,8 @@ class TargetDetector {
       }
     }
 
-    final executablePath = profile.executablePathOverride ??
+    final executablePath =
+        profile.executablePathOverride ??
         (executableName == null
             ? null
             : '${profile.appPath}/Contents/MacOS/$executableName');
@@ -291,7 +310,8 @@ class TargetDetector {
           name: 'principal-class',
           passed: true,
           fatal: false,
-          detail: 'NSPrincipalClass=${inspection.principalClass ?? '(缺失)'}（仅记录）',
+          detail:
+              'NSPrincipalClass=${inspection.principalClass ?? '(缺失)'}（仅记录）',
         ),
       );
     } else {
@@ -373,7 +393,12 @@ extension PreflightReportJson on PreflightReport {
     },
     'checks': [
       for (final c in checks)
-        {'name': c.name, 'passed': c.passed, 'fatal': c.fatal, 'detail': c.detail},
+        {
+          'name': c.name,
+          'passed': c.passed,
+          'fatal': c.fatal,
+          'detail': c.detail,
+        },
     ],
   };
 

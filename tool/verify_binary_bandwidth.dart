@@ -39,12 +39,17 @@ void main() async {
     stdout.writeln('2/5 连 CDP 并开画面流…');
     final connection = await connectCdp(debugPort: debugPort);
     final shell = findShellTarget(
-        await connection.client.listTargets(), profile.shellUrlSchemes);
+      await connection.client.listTargets(),
+      profile.shellUrlSchemes,
+    );
     final page = await connection.client.attachTo(shell);
     await relay.start();
     // 限帧会压低样本量，验收用 everyNthFrame: 1 全速推帧。
-    final session = ScreencastSession(page: page, relay: relay,
-        everyNthFrame: 1);
+    final session = ScreencastSession(
+      page: page,
+      relay: relay,
+      everyNthFrame: 1,
+    );
     await session.start();
     await session.firstFrame.timeout(const Duration(seconds: 10));
 
@@ -57,18 +62,17 @@ void main() async {
 
     // 动画源：每秒反色 10 次，持续 4s（画面稳定变化才产帧）。
     await page.evaluate(
-        "setInterval(() => { document.body.style.filter = "
-        "document.body.style.filter === 'invert(1)' ? '' : 'invert(1)'; },"
-        ' 100)');
+      "setInterval(() => { document.body.style.filter = "
+      "document.body.style.filter === 'invert(1)' ? '' : 'invert(1)'; },"
+      ' 100)',
+    );
     await Future<void>.delayed(const Duration(seconds: 4));
     await page.evaluate('void 0');
 
     stdout.writeln('4/5 统计…');
     final v2Stat = await v2Bytes.stop();
     final v1Stat = await v1Bytes.stop();
-    final ratio = v1Stat.bytes == 0
-        ? 0.0
-        : v2Stat.bytes / v1Stat.bytes;
+    final ratio = v1Stat.bytes == 0 ? 0.0 : v2Stat.bytes / v1Stat.bytes;
     stdout.writeln('v1（文本帧）: ${v1Stat.bytes}B / ${v1Stat.frames} 帧');
     stdout.writeln('v2（二进制）: ${v2Stat.bytes}B / ${v2Stat.frames} 帧');
     stdout.writeln('带宽比 v2/v1 = ${ratio.toStringAsFixed(3)}');
@@ -76,10 +80,8 @@ void main() async {
     stdout.writeln('5/5 断言…');
     _expect(v2Stat.frames >= 10, 'v2 客户端应收到足够帧（${v2Stat.frames}）');
     _expect(v1Stat.frames >= 10, 'v1 客户端应收到足够帧（${v1Stat.frames}）');
-    _expect(ratio > 0 && ratio < 0.85,
-        '二进制帧应明显省带宽（实测 $ratio，期望 < 0.85）');
-    _expect(v2Stat.jpegFrames == v2Stat.frames,
-        'v2 收到的每帧都应是 JPEG 原始字节');
+    _expect(ratio > 0 && ratio < 0.85, '二进制帧应明显省带宽（实测 $ratio，期望 < 0.85）');
+    _expect(v2Stat.jpegFrames == v2Stat.frames, 'v2 收到的每帧都应是 JPEG 原始字节');
 
     await v2Sink.close();
     await session.stop();
@@ -92,19 +94,24 @@ void main() async {
 }
 
 /// WS 流是单订阅的：authOk 等待与后续计数共用 asBroadcastStream。
-Future<(WebSocketChannel, Stream<dynamic>)> _connect(RelayServer relay,
-    {List<String>? caps}) async {
-  final channel =
-      WebSocketChannel.connect(Uri.parse('ws://127.0.0.1:${relay.port}/ws'));
+Future<(WebSocketChannel, Stream<dynamic>)> _connect(
+  RelayServer relay, {
+  List<String>? caps,
+}) async {
+  final channel = WebSocketChannel.connect(
+    Uri.parse('ws://127.0.0.1:${relay.port}/ws'),
+  );
   await channel.ready;
   final stream = channel.stream.asBroadcastStream();
-  channel.sink.add(RelayEnvelope(
-    channel: RelayChannel.ctrl,
-    type: RelayMessageType.auth,
-    seq: 0,
-    ts: 0,
-    data: {'token': relay.token, 'caps': ?caps},
-  ).encode());
+  channel.sink.add(
+    RelayEnvelope(
+      channel: RelayChannel.ctrl,
+      type: RelayMessageType.auth,
+      seq: 0,
+      ts: 0,
+      data: {'token': relay.token, 'caps': ?caps},
+    ).encode(),
+  );
   await stream
       .firstWhere((e) => e is String && e.contains('"authOk"'))
       .timeout(const Duration(seconds: 5));

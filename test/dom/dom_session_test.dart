@@ -12,17 +12,20 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 /// 极简 WS 消息队列（与 relay_smoke_test 同款单订阅消费模式）。
 class _Queue {
   _Queue(Stream<dynamic> stream) {
-    _sub = stream.listen((e) {
-      if (_waiters.isNotEmpty) {
-        _waiters.removeAt(0).complete(e);
-      } else {
-        _buffer.add(e);
-      }
-    }, onDone: () {
-      while (_waiters.isNotEmpty) {
-        _waiters.removeAt(0).completeError(StateError('连接已关闭'));
-      }
-    });
+    _sub = stream.listen(
+      (e) {
+        if (_waiters.isNotEmpty) {
+          _waiters.removeAt(0).complete(e);
+        } else {
+          _buffer.add(e);
+        }
+      },
+      onDone: () {
+        while (_waiters.isNotEmpty) {
+          _waiters.removeAt(0).completeError(StateError('连接已关闭'));
+        }
+      },
+    );
   }
 
   final _buffer = <dynamic>[];
@@ -47,7 +50,11 @@ class FakeCdpPage extends CdpPage {
 
   @override
   CdpTargetInfo get target => const CdpTargetInfo(
-        id: 't1', type: 'page', url: 'file:///fixture', title: 'fixture');
+    id: 't1',
+    type: 'page',
+    url: 'file:///fixture',
+    title: 'fixture',
+  );
 
   @override
   Future<Object?> evaluate(String expression) async {
@@ -56,8 +63,10 @@ class FakeCdpPage extends CdpPage {
   }
 
   @override
-  Future<Map<String, dynamic>> send(String method,
-      [Map<String, dynamic>? params]) async {
+  Future<Map<String, dynamic>> send(
+    String method, [
+    Map<String, dynamic>? params,
+  ]) async {
     sent.add((method, params));
     return <String, dynamic>{};
   }
@@ -96,16 +105,19 @@ void main() {
     session = DomSession(page: page, relay: relay, collectorSource: '// test');
 
     channel = WebSocketChannel.connect(
-        Uri.parse('ws://127.0.0.1:${relay.port}/ws'));
+      Uri.parse('ws://127.0.0.1:${relay.port}/ws'),
+    );
     await channel.ready;
     queue = _Queue(channel.stream);
-    channel.sink.add(RelayEnvelope(
-      channel: RelayChannel.ctrl,
-      type: RelayMessageType.auth,
-      seq: 0,
-      ts: 0,
-      data: {'token': relay.token},
-    ).encode());
+    channel.sink.add(
+      RelayEnvelope(
+        channel: RelayChannel.ctrl,
+        type: RelayMessageType.auth,
+        seq: 0,
+        ts: 0,
+        data: {'token': relay.token},
+      ).encode(),
+    );
     final authOk = await nextEnvelope();
     expect(authOk.type, RelayMessageType.authOk);
 
@@ -120,21 +132,37 @@ void main() {
     if (await staticDir.exists()) await staticDir.delete(recursive: true);
   });
 
-  test('start 注入采集器脚本（addScriptToEvaluateOnNewDocument + evaluate）',
-      () {
+  test('start 注入采集器脚本（addScriptToEvaluateOnNewDocument + evaluate）', () {
     expect(
       page.sent.map((c) => c.$1),
-      containsAllInOrder(['Page.enable', 'Page.addScriptToEvaluateOnNewDocument']),
+      containsAllInOrder([
+        'Page.enable',
+        'Page.addScriptToEvaluateOnNewDocument',
+      ]),
     );
     expect(page.evaluated.single, '// test');
   });
 
   test('采集器批次分类后经 dom 通道广播（meta/full/batch）', () async {
-    page.bindingController.add(jsonEncode([
-      {'type': 4, 'data': {'href': 'file:///fixture', 'width': 720, 'height': 480}, 'timestamp': 1},
-      {'type': 2, 'data': {'node': {}}, 'timestamp': 2},
-      {'type': 3, 'data': {'source': 0}, 'timestamp': 3},
-    ]));
+    page.bindingController.add(
+      jsonEncode([
+        {
+          'type': 4,
+          'data': {'href': 'file:///fixture', 'width': 720, 'height': 480},
+          'timestamp': 1,
+        },
+        {
+          'type': 2,
+          'data': {'node': {}},
+          'timestamp': 2,
+        },
+        {
+          'type': 3,
+          'data': {'source': 0},
+          'timestamp': 3,
+        },
+      ]),
+    );
     await session.firstFullSnapshot.timeout(const Duration(seconds: 5));
 
     final meta = await nextEnvelope();
@@ -153,9 +181,15 @@ void main() {
   });
 
   test('大 payload 经压缩包装广播，解压后还原（#14）', () async {
-    page.bindingController.add(jsonEncode([
-      {'type': 3, 'data': {'pad': 'x' * 6000}, 'timestamp': 1},
-    ]));
+    page.bindingController.add(
+      jsonEncode([
+        {
+          'type': 3,
+          'data': {'pad': 'x' * 6000},
+          'timestamp': 1,
+        },
+      ]),
+    );
     final batch = await nextEnvelope();
     expect(batch.channel, RelayChannel.dom);
     expect(batch.type, RelayMessageType.batch);
@@ -175,37 +209,48 @@ void main() {
   });
 
   test('远程端 ctrl resync 触发页面 __gciResync evaluate', () async {
-    channel.sink.add(RelayEnvelope(
-      channel: RelayChannel.ctrl,
-      type: RelayMessageType.resync,
-      seq: 1,
-      ts: 0,
-      data: const {},
-    ).encode());
-    await _waitFor(() => page.evaluated.any((e) => e.contains(kResyncFunctionName)));
+    channel.sink.add(
+      RelayEnvelope(
+        channel: RelayChannel.ctrl,
+        type: RelayMessageType.resync,
+        seq: 1,
+        ts: 0,
+        data: const {},
+      ).encode(),
+    );
+    await _waitFor(
+      () => page.evaluated.any((e) => e.contains(kResyncFunctionName)),
+    );
   });
 
   test('远程端 input 文本经校验后下发 Input.insertText', () async {
-    channel.sink.add(RelayEnvelope(
-      channel: RelayChannel.input,
-      type: RelayMessageType.input,
-      seq: 2,
-      ts: 0,
-      data: {'kind': 'text', 'text': 'hello'},
-    ).encode());
-    await _waitFor(() =>
-        page.sent.any((c) => c.$1 == 'Input.insertText' && c.$2?['text'] == 'hello'));
+    channel.sink.add(
+      RelayEnvelope(
+        channel: RelayChannel.input,
+        type: RelayMessageType.input,
+        seq: 2,
+        ts: 0,
+        data: {'kind': 'text', 'text': 'hello'},
+      ).encode(),
+    );
+    await _waitFor(
+      () => page.sent.any(
+        (c) => c.$1 == 'Input.insertText' && c.$2?['text'] == 'hello',
+      ),
+    );
     expect(session.status().inputsDispatched, 1);
   });
 
   test('非法 input payload 被拒且计入 lastError', () async {
-    channel.sink.add(RelayEnvelope(
-      channel: RelayChannel.input,
-      type: RelayMessageType.input,
-      seq: 3,
-      ts: 0,
-      data: {'kind': 'unknown'},
-    ).encode());
+    channel.sink.add(
+      RelayEnvelope(
+        channel: RelayChannel.input,
+        type: RelayMessageType.input,
+        seq: 3,
+        ts: 0,
+        data: {'kind': 'unknown'},
+      ).encode(),
+    );
     await _waitFor(() => session.status().lastError != null);
     expect(session.status().inputsDispatched, 0);
   });
@@ -219,8 +264,10 @@ void main() {
 }
 
 /// 轮询等待条件成立（跨 async 边界的断言）。
-Future<void> _waitFor(bool Function() condition,
-    {Duration timeout = const Duration(seconds: 5)}) async {
+Future<void> _waitFor(
+  bool Function() condition, {
+  Duration timeout = const Duration(seconds: 5),
+}) async {
   final deadline = DateTime.now().add(timeout);
   while (!condition()) {
     if (DateTime.now().isAfter(deadline)) {

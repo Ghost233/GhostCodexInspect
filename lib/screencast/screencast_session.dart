@@ -136,6 +136,10 @@ class ScreencastSession {
       if (maxWidth != null) 'maxWidth': maxWidth,
       if (maxHeight != null) 'maxHeight': maxHeight,
     });
+
+    // 启动即补一帧合成帧：CDP screencast 只在画面变化时出帧，会话刚启动
+    // （如模式切换）而画面静止时，远程端会一直停在占位层（#17）。
+    unawaited(_reseedClient());
   }
 
   /// 停止画面流（不动目标页面与中转本身）。幂等。

@@ -10,6 +10,9 @@ const $ = (id) => document.getElementById(id);
 
 /* ---------- 顶栏：双模式切换 ---------- */
 
+/** 当前显示模式（#17 新鲜度指示按模式取对应通道的数据时间）。 */
+let currentMode = 'dom';
+
 function setupModeSwitch() {
   const buttons = document.querySelectorAll('.mode-btn');
   const panes = {
@@ -18,6 +21,7 @@ function setupModeSwitch() {
   };
   for (const btn of buttons) {
     btn.addEventListener('click', () => {
+      currentMode = btn.dataset.mode;
       for (const b of buttons) {
         const active = b === btn;
         b.classList.toggle('active', active);
@@ -26,8 +30,77 @@ function setupModeSwitch() {
       for (const [mode, pane] of Object.entries(panes)) {
         pane.classList.toggle('hidden', mode !== btn.dataset.mode);
       }
+      updateFreshness(); // 切模式立即刷新指示（另一模式可能久无数据）
     });
   }
+}
+
+/* ---------- 顶栏：视图尺寸模式切换（#17 问题 1） ---------- */
+
+const SIZE_MODE_KEY = 'gci.viewSizeMode';
+
+/**
+ * @param {import('./replay.js').DomReplaySession} session
+ * @param {import('./screencast.js').ScreencastView} screencastView
+ */
+function setupSizeToggle(session, screencastView) {
+  const btn = $('size-toggle');
+  if (!btn) return;
+  const apply = (mode) => {
+    session.setSizeMode(mode);
+    screencastView.setSizeMode(mode);
+    btn.textContent = mode === 'actual' ? '原始尺寸' : '自适应';
+    btn.title = mode === 'actual'
+      ? '按源视口原始尺寸显示（可滚动查看），点击切换为自适应'
+      : '等比缩放适配窗口，点击切换为原始尺寸';
+    btn.setAttribute('aria-pressed', String(mode === 'actual'));
+  };
+  btn.addEventListener('click', () => {
+    const next = session.sizeMode === 'actual' ? 'fit' : 'actual';
+    try { localStorage.setItem(SIZE_MODE_KEY, next); } catch { /* 隐私模式等忽略 */ }
+    apply(next);
+  });
+  let stored = 'fit';
+  try { stored = localStorage.getItem(SIZE_MODE_KEY) === 'actual' ? 'actual' : 'fit'; }
+  catch { /* 忽略 */ }
+  apply(stored);
+}
+
+/* ---------- 顶栏：刷新新鲜度指示（#17 问题 3） ---------- */
+
+/** 各通道最近一次数据到达时间（ms epoch）。 */
+const lastDataAt = { dom: 0, frame: 0 };
+const FRESH_STALE_MS = 3000;
+
+function updateFreshness() {
+  const el = $('freshness');
+  if (!el) return;
+  const last = currentMode === 'screencast' ? lastDataAt.frame : lastDataAt.dom;
+  if (!last) {
+    el.classList.add('hidden');
+    return;
+  }
+  const ms = Date.now() - last;
+  el.classList.remove('hidden');
+  el.textContent = `距上次刷新 ${ms}ms`;
+  el.classList.toggle('stale', ms > FRESH_STALE_MS);
+}
+
+/* ---------- 舞台指针指示点（#17 问题 4） ---------- */
+
+/** 远端鼠标移动时在舞台上显示指示点（双模式通用，只读预览同样生效）。 */
+function setupCursorDot() {
+  const dot = document.createElement('div');
+  dot.className = 'cursor-dot hidden';
+  document.body.appendChild(dot);
+  const stage = document.querySelector('.stage');
+  if (!stage) return;
+  stage.addEventListener('mousemove', (e) => {
+    dot.classList.remove('hidden');
+    dot.style.left = `${e.clientX}px`;
+    dot.style.top = `${e.clientY}px`;
+  });
+  stage.addEventListener('mouseleave', () => dot.classList.add('hidden'));
 }
 
 /* ---------- 连接状态指示与错误横幅 ---------- */
@@ -119,6 +192,7 @@ function renderShellTabs(data, client, onBeforeSwitch) {
 
 function main() {
   setupModeSwitch();
+  setupCursorDot();
 
   const host = $('replayer-host');
   const session = new DomReplaySession(host);
@@ -148,6 +222,7 @@ function main() {
     onMessage: (envelope) => {
       // 按通道分发（线格式权威：lib/relay/envelope.dart，键名 ch/t/data）
       if (envelope.ch === 'dom') {
+        lastDataAt.dom = Date.now(); // #17 新鲜度指示
         session.handleDomMessage(envelope.t, envelope.data);
         // 首份全量快照到达后撤下占位层，露出重建画面
         if (envelope.t === 'full') {
@@ -155,6 +230,7 @@ function main() {
           if (placeholder) placeholder.classList.add('hidden');
         }
       } else if (envelope.ch === 'frame') {
+        lastDataAt.frame = Date.now(); // #17 新鲜度指示
         screencastView.handleFrameMessage(envelope.t, envelope.data);
       } else if (envelope.ch === 'ctrl' && envelope.t === 'shells') {
         // #16：shell 页签栏；点击切换时先复位两个视图，再请求宿主重建会话
@@ -179,6 +255,10 @@ function main() {
   const inputLayer = readOnly
     ? null
     : new InputCaptureLayer(host, session, client);
+
+  // #17：视图尺寸模式切换（自适应/原始尺寸，双模式同步）+ 新鲜度指示
+  setupSizeToggle(session, screencastView);
+  setInterval(updateFreshness, 250);
 
   // 中转不可达（如本地静态伺服预览）属预期：页面显示「未连接」并自动重连
   client.connect();

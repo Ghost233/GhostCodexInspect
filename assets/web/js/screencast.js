@@ -12,17 +12,11 @@
  * viewportWidth × scale，见 _fit）。
  */
 import { computeScale } from './coord.js';
-
-/** 转发的特殊键白名单（与 input.js 同一约定）。 */
-const KEY_FORWARD_SET = new Set([
-  'Backspace', 'Enter', 'Tab', 'Escape',
-  'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
-  'Delete', 'Home', 'End',
-]);
+import { KeyboardForwarder } from './input.js';
 
 export class ScreencastView {
   /**
-   * @param {HTMLElement} host #screencast-host 容器（tabindex=0）
+   * @param {HTMLElement} host #screencast-host 容器
    * @param {import('./ws-client.js').RelayClient} client 中转客户端
    * @param {{ readOnly?: boolean }} [options] readOnly=true 时只渲染不捕获输入
    *   （工单 #13：宿主内嵌只读预览 ro=1）
@@ -34,6 +28,8 @@ export class ScreencastView {
     this.placeholder = host.querySelector('.stage-placeholder');
     /** 视口元信息（meta 信封到达前为 null，输入拒绝发送）。 */
     this.viewport = null;
+    /** 视图尺寸模式（#17）：'fit' 自适应舞台 | 'actual' 原始尺寸（可滚动）。 */
+    this.sizeMode = 'fit';
 
     if (!options.readOnly) {
       this._bindInput();
@@ -58,6 +54,16 @@ export class ScreencastView {
       this.img.classList.remove('has-frame');
     }
     if (this.placeholder) this.placeholder.classList.remove('hidden');
+  }
+
+  /**
+   * 切换视图尺寸模式（#17）：'fit' 等比缩放适配舞台；'actual' 原始尺寸
+   * （1 CSS px = 1 源 CSS px），宿主容器滚动查看。
+   */
+  setSizeMode(mode) {
+    this.sizeMode = mode === 'actual' ? 'actual' : 'fit';
+    this.host.classList.toggle('actual', this.sizeMode === 'actual');
+    this._fit();
   }
 
   /** 处理 frame 通道信封。 */
@@ -88,9 +94,14 @@ export class ScreencastView {
     }
   }
 
-  /** 按舞台可用空间等比缩放 img（contain 语义）。舞台隐藏（尺寸 0）时跳过。 */
+  /** 尺寸模式排版：fit 等比 contain；actual 原始尺寸。舞台隐藏（尺寸 0）时跳过。 */
   _fit() {
     if (!this.viewport) return;
+    if (this.sizeMode === 'actual') {
+      this.img.style.width = `${this.viewport.viewportWidth}px`;
+      this.img.style.height = `${this.viewport.viewportHeight}px`;
+      return;
+    }
     const stage = this.host.parentElement;
     if (!stage || stage.clientWidth === 0 || stage.clientHeight === 0) return;
     const scale = computeScale(
@@ -122,9 +133,15 @@ export class ScreencastView {
     // 与 input.js 同一约定：e.button 数值 → CDP 字符串
     const buttonName = (b) => b === 2 ? 'right' : b === 1 ? 'middle' : 'left';
 
+    // 键盘经隐藏 textarea 代理转发（#17：IME composition 支持）
+    this.keyboard = new KeyboardForwarder(this.host, {
+      onText: (text) => send({ kind: 'text', text }),
+      onKey: (key) => send({ kind: 'key', key }),
+    });
+
     this.img.addEventListener('mousedown', (e) => {
       e.preventDefault();
-      this.host.focus();
+      this.keyboard.focus();
       const p = this._toSource(e);
       if (p) send({ kind: 'mouse', action: 'down', ...p, button: buttonName(e.button), clickCount: e.detail || 1 });
     });
@@ -144,16 +161,5 @@ export class ScreencastView {
         deltaY: e.deltaY * factor,
       });
     }, { passive: false });
-
-    this.host.addEventListener('keydown', (e) => {
-      if (e.metaKey || e.ctrlKey) return; // 组合键不放行（避免远程触发本机快捷键语义）
-      if (e.key.length === 1) {
-        e.preventDefault();
-        send({ kind: 'text', text: e.key });
-      } else if (KEY_FORWARD_SET.has(e.key)) {
-        e.preventDefault();
-        send({ kind: 'key', key: e.key });
-      }
-    });
   }
 }

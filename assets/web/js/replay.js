@@ -29,6 +29,28 @@ export class DomReplaySession {
     this._metaEvent = null;
     /** @type {object[]} full 到达前暂存的增量事件（防乱序丢失） */
     this._pendingInc = [];
+    /** 视图尺寸模式（#17）：'fit' 自适应舞台 | 'actual' 原始尺寸（可滚动）。 */
+    this.sizeMode = 'fit';
+
+    // 自适应重排（#17）：窗口 resize 与页签 hidden→visible 都要重新适配。
+    // actual 模式下无需缩放，跳过。
+    const refit = () => {
+      if (this.sizeMode === 'fit') this.fitToViewport(this._metaEvent);
+    };
+    window.addEventListener('resize', refit);
+    if (typeof ResizeObserver !== 'undefined') {
+      new ResizeObserver(refit).observe(host);
+    }
+  }
+
+  /**
+   * 切换视图尺寸模式（#17）：'fit' 等比缩放适配舞台；'actual' 原始尺寸
+   * （iframe 按源视口 CSS px 平铺，宿主容器滚动查看，缩放系数为 1）。
+   */
+  setSizeMode(mode) {
+    this.sizeMode = mode === 'actual' ? 'actual' : 'fit';
+    this.host.classList.toggle('actual', this.sizeMode === 'actual');
+    this.fitToViewport(this._metaEvent);
   }
 
   /**
@@ -108,7 +130,9 @@ export class DomReplaySession {
   }
 
   /**
-   * 按 meta 事件中的源视口尺寸，等比缩放 iframe 以适配远程端舞台。
+   * 按 meta 事件中的源视口尺寸适配 iframe 排版（#17 尺寸模式）：
+   * - fit：等比缩放适配远程端舞台；
+   * - actual：原始尺寸（scale=1，宿主容器滚动查看）。
    * 缩放系数同时是输入反向的换算依据（coord.js：源 CSS px = 远端 px ÷ s）。
    * @returns {number|null} 当前缩放系数，无数据时为 null
    */
@@ -117,7 +141,9 @@ export class DomReplaySession {
     if (!data || !data.width || !data.height) return null;
     const rect = this.host.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return null;
-    const scale = computeScale(data.width, data.height, rect.width, rect.height);
+    const scale = this.sizeMode === 'actual'
+        ? 1
+        : computeScale(data.width, data.height, rect.width, rect.height);
     const iframe = this.host.querySelector('iframe');
     if (iframe) {
       iframe.style.width = data.width + 'px';

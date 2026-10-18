@@ -290,3 +290,81 @@ body {
   border-color: var(--accent, #0a84ff);
   color: #fff;
 }
+
+/* ---------- #17：远程端体验改进 ---------- */
+
+/* 顶栏：尺寸模式切换按钮 */
+.size-toggle {
+  appearance: none;
+  border: 1px solid var(--separator);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 10px;
+  cursor: pointer;
+  margin-right: 12px;
+}
+.size-toggle:hover {
+  color: var(--text-primary);
+  background: var(--bg-panel-hover);
+}
+
+/* 顶栏：刷新新鲜度指示（距上次数据到达的毫秒数；>3s 标黄） */
+.freshness {
+  margin-right: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.freshness.stale {
+  color: var(--text-warn);
+}
+
+/* 舞台指针指示点：远端移动鼠标时提示当前指向位置 */
+.cursor-dot {
+  position: fixed;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-radius: 50%;
+  background: rgba(10, 132, 255, 0.55);
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  z-index: 50;
+}
+
+/* IME 代理（#17）：隐藏 textarea 承接焦点与输入法 composition 事件 */
+.ime-proxy {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  width: 1px;
+  height: 1px;
+  opacity: 0.01;
+  border: none;
+  padding: 0;
+  resize: none;
+  outline: none;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  z-index: 3;
+}
+
+/* 视图尺寸模式 actual：原始尺寸平铺，容器滚动查看（#17）。
+   输入捕获层保持 inset:0 铺满可视区：坐标换算基于 iframe 的视觉 rect
+   （input.js _toSource 用 getBoundingClientRect），滚动下依然正确，
+   超出 iframe 的点击由边界检查丢弃。 */
+.replayer-host.actual {
+  align-items: flex-start;
+  justify-content: flex-start;
+  overflow: auto;
+}
+.screencast-host.actual {
+  align-items: flex-start;
+  justify-content: flex-start;
+  overflow: auto;
+}

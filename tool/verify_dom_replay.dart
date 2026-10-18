@@ -329,6 +329,67 @@ Future<void> main() async {
     );
     stdout.writeln('远程端文本输入回灌生效：#echo-input.value = $fixtureInputValue');
 
+    // ---- #17 验收①：IME 组合输入。远程端键盘走隐藏 textarea 代理，
+    // composition 期间不转发 keydown，compositionend 把成字文本一次下发。
+    await remotePage.evaluate('''
+(() => {
+  const ta = document.querySelector('.ime-proxy');
+  if (!ta) throw new Error('缺少 .ime-proxy 输入代理');
+  ta.dispatchEvent(new CompositionEvent('compositionstart'));
+  ta.dispatchEvent(new CompositionEvent('compositionend', {data: '你好'}));
+})()
+''');
+    await _pollEvaluate(
+      page,
+      "document.getElementById('echo-input').value",
+      (v) => v is String && v.contains('你好'),
+      what: 'IME 组合文本应回灌 fixture 输入框',
+    );
+    stdout.writeln('IME 组合输入回灌生效（compositionend 文本到达 fixture）');
+
+    // ---- #17 验收②：视图尺寸模式切换。fit → actual（scale=1）→ fit。
+    await remotePage.click('#size-toggle');
+    await _pollEvaluate(
+      remotePage.asCdpPageAdapter(),
+      'window.__remote.session.scale === 1 && '
+      "document.getElementById('replayer-host').classList.contains('actual')",
+      (v) => v == true,
+      what: '切到原始尺寸后 scale 应为 1 且宿主带 .actual',
+    );
+    stdout.writeln('尺寸模式切换：自适应 → 原始尺寸（scale=1）');
+    await remotePage.click('#size-toggle');
+    await _pollEvaluate(
+      remotePage.asCdpPageAdapter(),
+      '''
+(() => {
+  const s = window.__remote.session;
+  const host = document.getElementById('replayer-host');
+  const diag = 'mode=' + s.sizeMode + ' scale=' + s.scale +
+      ' cls=' + host.className;
+  return (s.scale !== 1 && !host.classList.contains('actual'))
+      ? 'OK ' + diag : 'PENDING ' + diag;
+})()
+''',
+      (v) => v is String && v.startsWith('OK'),
+      what: '切回自适应后 scale 应恢复非 1 且摘掉 .actual',
+    );
+    stdout.writeln('尺寸模式切换：原始尺寸 → 自适应（恢复缩放）');
+
+    // ---- #17 验收③：刷新新鲜度指示在数据到达后可见。
+    await _pollEvaluate(
+      remotePage.asCdpPageAdapter(),
+      '''
+(() => {
+  const el = document.getElementById('freshness');
+  return el && !el.classList.contains('hidden') &&
+      el.textContent.includes('距上次刷新');
+})()
+''',
+      (v) => v == true,
+      what: '新鲜度指示应显示「距上次刷新 …ms」',
+    );
+    stdout.writeln('新鲜度指示可见（距上次刷新 ms）');
+
     final status = session.status();
     stdout.writeln(
       'DomSession 状态：batches=${status.batchesReceived} '

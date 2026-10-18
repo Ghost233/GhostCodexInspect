@@ -20,6 +20,66 @@ const KEY_FORWARD_SET = new Set([
 
 const MOUSE_MOVE_MIN_MS = 50; // 鼠标移动节流（远端轨迹无需满帧率）
 
+/**
+ * 键盘转发器（#17）：隐藏 textarea 代理承接焦点与输入法（IME）。
+ *
+ * 为什么需要 textarea：IME 的 composition 事件只发生在可编辑元素上，
+ * 普通 div 收不到中文输入法的成字事件（noVNC 同款方案）。
+ *
+ * 行为：
+ * - compositionstart~compositionend 期间：keydown 一律不转发（避免把
+ *   拼音过程串当按键发下去），compositionend 时把成字文本走 text 通道；
+ * - 非组合期：可打印字符 → text（preventDefault 保持 textarea 为空），
+ *   白名单特殊键 → key；
+ * - 组合键（meta/ctrl）不放行（与本仓既有约定一致）。
+ */
+export class KeyboardForwarder {
+  /**
+   * @param {HTMLElement} host 代理挂载容器（position:relative）
+   * @param {{ onText: (text: string) => void, onKey: (key: string) => void }} handlers
+   */
+  constructor(host, { onText, onKey }) {
+    const ta = document.createElement('textarea');
+    ta.className = 'ime-proxy';
+    ta.setAttribute('aria-label', '远程键盘输入代理');
+    ta.autocapitalize = 'off';
+    ta.autocomplete = 'off';
+    ta.spellcheck = false;
+    host.appendChild(ta);
+    this.proxy = ta;
+    this._composing = false;
+
+    ta.addEventListener('compositionstart', () => { this._composing = true; });
+    ta.addEventListener('compositionend', (e) => {
+      this._composing = false;
+      if (e.data) onText(e.data);
+      ta.value = '';
+    });
+    ta.addEventListener('compositioncancel', () => {
+      this._composing = false;
+      ta.value = '';
+    });
+    ta.addEventListener('keydown', (e) => {
+      if (this._composing || e.isComposing) return; // IME 接管期
+      if (e.metaKey || e.ctrlKey) return;
+      if (e.key.length === 1) {
+        e.preventDefault();
+        onText(e.key);
+      } else if (KEY_FORWARD_SET.has(e.key)) {
+        e.preventDefault();
+        onKey(e.key);
+      }
+    });
+    // 兜底：非合成路径残留进 textarea 的内容（如粘贴）清空，保持代理无状态
+    ta.addEventListener('input', () => { if (!this._composing) ta.value = ''; });
+  }
+
+  /** 把键盘焦点交给代理（点击视图后调用）。 */
+  focus() {
+    this.proxy.focus();
+  }
+}
+
 export class InputCaptureLayer {
   /**
    * @param {HTMLElement} host    #replayer-host（Replayer iframe 的容器，需 position:relative）
@@ -34,17 +94,21 @@ export class InputCaptureLayer {
 
     const overlay = document.createElement('div');
     overlay.id = 'input-capture-overlay';
-    overlay.tabIndex = 0; // 可聚焦以接收键盘
     overlay.className = 'input-capture-overlay';
     overlay.setAttribute('aria-label', '远程输入捕获层');
     this.overlay = overlay;
     host.appendChild(overlay);
 
+    // 键盘经隐藏 textarea 代理转发（#17：IME 支持）
+    this.keyboard = new KeyboardForwarder(overlay, {
+      onText: (text) => this._send({ kind: 'text', text }),
+      onKey: (key) => this._send({ kind: 'key', key }),
+    });
+
     overlay.addEventListener('mousedown', (e) => this._onMouse(e, 'down'));
     overlay.addEventListener('mouseup', (e) => this._onMouse(e, 'up'));
     overlay.addEventListener('mousemove', (e) => this._onMouse(e, 'move'));
     overlay.addEventListener('wheel', (e) => this._onWheel(e), { passive: false });
-    overlay.addEventListener('keydown', (e) => this._onKey(e));
     overlay.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
@@ -67,7 +131,7 @@ export class InputCaptureLayer {
 
   _onMouse(e, action) {
     e.preventDefault();
-    if (action === 'down') this.overlay.focus(); // 点击后接管键盘
+    if (action === 'down') this.keyboard.focus(); // 点击后代理接管键盘/IME
     if (action === 'move') {
       const now = performance.now();
       if (now - this._lastMoveSentAt < MOUSE_MOVE_MIN_MS) return;
@@ -96,20 +160,5 @@ export class InputCaptureLayer {
       deltaX: e.deltaX * unit,
       deltaY: e.deltaY * unit,
     });
-  }
-
-  _onKey(e) {
-    // 组合键（Cmd/Ctrl）不放行，避免误触浏览器快捷键语义
-    if (e.metaKey || e.ctrlKey) return;
-    if (e.key.length === 1) {
-      // 可打印字符：走 insertText 路径（输入法/粘贴等也归此通道）
-      e.preventDefault();
-      this._send({ kind: 'text', text: e.key });
-      return;
-    }
-    if (KEY_FORWARD_SET.has(e.key)) {
-      e.preventDefault();
-      this._send({ kind: 'key', key: e.key });
-    }
   }
 }

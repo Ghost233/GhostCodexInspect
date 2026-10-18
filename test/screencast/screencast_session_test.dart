@@ -165,7 +165,9 @@ void main() {
 
   test('帧广播到 frame 通道并立即回执 ack', () async {
     await session.start();
-    await nextEnvelope(); // meta
+    await nextEnvelope(); // 启动 meta
+    await nextEnvelope(); // 启动补种 meta（#17）
+    await nextEnvelope(); // 启动补种合成帧（#17）
     page.frameController.add(_frame(7));
     final frame = await nextEnvelope();
     expect(frame.channel, RelayChannel.frame);
@@ -243,6 +245,18 @@ void main() {
       await lateQueue.cancel();
       await late.sink.close();
     }
+  });
+
+  test('启动即补一帧合成帧：画面静止时远程端也立即出图（#17）', () async {
+    await session.start();
+    // CDP screencast 只在画面变化时出帧；不推任何真实帧，
+    // 启动路径的补种应让已连接客户端立刻收到 meta + 合成帧。
+    await nextEnvelope(); // 启动 meta
+    await nextEnvelope(); // 补种 meta
+    final frame = await nextEnvelope();
+    expect(frame.channel, RelayChannel.frame);
+    expect(frame.type, RelayMessageType.frame);
+    expect((frame.data as Map)['metadata'], {'synthetic': true});
   });
 
   test('中转回调被占用时 start 抛 StateError（互斥约定）', () async {

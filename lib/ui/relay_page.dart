@@ -453,10 +453,7 @@ class _VideoCapsCard extends StatelessWidget {
                   child: const Text('一键安装'),
                 ),
                 const SizedBox(width: 8),
-                CopyButton(
-                  text: 'brew install ffmpeg',
-                  label: '安装命令',
-                ),
+                CopyButton(text: 'brew install ffmpeg', label: '安装命令'),
               ],
             ),
             if (controller.ffmpegInstalling) ...[
@@ -474,8 +471,7 @@ class _VideoCapsCard extends StatelessWidget {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
-          ]
-          else ...[
+          ] else ...[
             for (final cap in caps)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 2),
@@ -538,8 +534,9 @@ class _RelayPortEditor extends StatefulWidget {
 }
 
 class _RelayPortEditorState extends State<_RelayPortEditor> {
-  late final TextEditingController _text =
-      TextEditingController(text: '${widget.controller.relayPort}');
+  late final TextEditingController _text = TextEditingController(
+    text: '${widget.controller.relayPort}',
+  );
   String? _error;
 
   @override

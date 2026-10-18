@@ -15,10 +15,12 @@ void main() {
 
     final c = HostController(autoRefresh: false);
     addTearDown(c.dispose);
-    await tester.pumpWidget(MaterialApp(
-      theme: buildAppTheme(Brightness.light),
-      home: Scaffold(body: RelayPage(controller: c)),
-    ));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(Brightness.light),
+        home: Scaffold(body: RelayPage(controller: c)),
+      ),
+    );
     await tester.pumpAndSettle();
 
     // 会话卡始终渲染（2026-10-19 用户反馈修复：设置曾只在

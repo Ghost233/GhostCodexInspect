@@ -322,8 +322,9 @@ class _DebugPortEditor extends StatefulWidget {
 }
 
 class _DebugPortEditorState extends State<_DebugPortEditor> {
-  late final TextEditingController _text =
-      TextEditingController(text: '${widget.controller.debugPort}');
+  late final TextEditingController _text = TextEditingController(
+    text: '${widget.controller.debugPort}',
+  );
   String? _error;
 
   @override

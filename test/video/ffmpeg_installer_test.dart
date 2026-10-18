@@ -33,8 +33,10 @@ void main() {
     });
 
     test('普通行保持阶段', () {
-      final (phase, percent) =
-          FfmpegInstaller.parseLine('some random output', 'installing');
+      final (phase, percent) = FfmpegInstaller.parseLine(
+        'some random output',
+        'installing',
+      );
       expect(phase, 'installing');
       expect(percent, isNull);
     });

@@ -193,7 +193,11 @@ class HostController extends ChangeNotifier {
   /// 带参启动目标应用。[confirmed] 必须来自 UI 确认对话框。
   Future<void> launchTarget({required bool confirmed}) =>
       _run('带参启动', () async {
-        await appLauncher.launch(profile, debugPort: _debugPort, confirmRealTarget: confirmed);
+        await appLauncher.launch(
+          profile,
+          debugPort: _debugPort,
+          confirmRealTarget: confirmed,
+        );
         await refreshRunningState();
       });
 
@@ -262,7 +266,10 @@ class HostController extends ChangeNotifier {
     if (launcher.relay.isRunning) {
       if (sessionKind != SessionKind.none) await stopSession();
       await launcher.stopRelay();
-      await launcher.startRelay(allowLanAccess: allowLanAccess, port: _relayPort);
+      await launcher.startRelay(
+        allowLanAccess: allowLanAccess,
+        port: _relayPort,
+      );
     }
   });
 
@@ -330,8 +337,9 @@ class HostController extends ChangeNotifier {
     ffmpegInstallLine = '';
     notifyListeners();
     try {
-      await for (final progress
-          in const FfmpegInstaller().install(brew.path!)) {
+      await for (final progress in const FfmpegInstaller().install(
+        brew.path!,
+      )) {
         ffmpegInstallPercent = progress.percent;
         ffmpegInstallLine = progress.line;
         notifyListeners();

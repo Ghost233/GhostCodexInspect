@@ -31,9 +31,7 @@ class FfmpegInstallProgress {
 /// brew 可执行文件定位结果。
 class BrewLookup {
   const BrewLookup(this.path) : available = true;
-  const BrewLookup.missing()
-      : path = null,
-        available = false;
+  const BrewLookup.missing() : path = null, available = false;
 
   final String? path;
   final bool available;
@@ -64,8 +62,9 @@ class FfmpegInstaller {
   /// 返回 (phase, percent)；percent 无进度信息时为 null。
   static (String, double?) parseLine(String line, String currentPhase) {
     final percentMatch = RegExp(r'(\d+(?:\.\d+)?)%').firstMatch(line);
-    final percent =
-        percentMatch != null ? double.tryParse(percentMatch.group(1)!) : null;
+    final percent = percentMatch != null
+        ? double.tryParse(percentMatch.group(1)!)
+        : null;
     var phase = currentPhase;
     if (line.startsWith('==> Pouring') ||
         line.startsWith('==> Installing') ||
@@ -91,7 +90,8 @@ class FfmpegInstaller {
         if (controller.isClosed) return;
         if (code == 0) {
           controller.add(
-              const FfmpegInstallProgress(phase: 'done', line: '安装完成'));
+            const FfmpegInstallProgress(phase: 'done', line: '安装完成'),
+          );
           controller.close();
         } else {
           controller.addError(StateError('brew install 失败（exit=$code）'));
@@ -100,45 +100,67 @@ class FfmpegInstaller {
       });
     }
 
-    Process.start(brewPath, ['install', 'ffmpeg']).then((p) {
-      process = p;
-      // stdout：brew 日志行
-      p.stdout
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())
-          .listen((line) {
-        final (newPhase, percent) = parseLine(line, phase);
-        phase = newPhase;
-        if (!controller.isClosed) {
-          controller.add(FfmpegInstallProgress(
-              phase: phase, percent: percent, line: line.trim()));
-        }
-      }, onDone: () {
-        stdoutDone = true;
-        finishIfDone();
-      }, onError: controller.addError);
-      // stderr：curl 进度（\r 分隔）
-      p.stderr.transform(utf8.decoder).listen((chunk) {
-        for (final raw in chunk.split(RegExp(r'[\r\n]+'))) {
-          final line = raw.trim();
-          if (line.isEmpty) continue;
-          final (newPhase, percent) = parseLine(line, phase);
-          phase = newPhase;
-          if (percent != null && !controller.isClosed) {
-            controller.add(FfmpegInstallProgress(
-                phase: phase, percent: percent, line: line));
+    Process.start(brewPath, ['install', 'ffmpeg'])
+        .then((p) {
+          process = p;
+          // stdout：brew 日志行
+          p.stdout
+              .transform(utf8.decoder)
+              .transform(const LineSplitter())
+              .listen(
+                (line) {
+                  final (newPhase, percent) = parseLine(line, phase);
+                  phase = newPhase;
+                  if (!controller.isClosed) {
+                    controller.add(
+                      FfmpegInstallProgress(
+                        phase: phase,
+                        percent: percent,
+                        line: line.trim(),
+                      ),
+                    );
+                  }
+                },
+                onDone: () {
+                  stdoutDone = true;
+                  finishIfDone();
+                },
+                onError: controller.addError,
+              );
+          // stderr：curl 进度（\r 分隔）
+          p.stderr
+              .transform(utf8.decoder)
+              .listen(
+                (chunk) {
+                  for (final raw in chunk.split(RegExp(r'[\r\n]+'))) {
+                    final line = raw.trim();
+                    if (line.isEmpty) continue;
+                    final (newPhase, percent) = parseLine(line, phase);
+                    phase = newPhase;
+                    if (percent != null && !controller.isClosed) {
+                      controller.add(
+                        FfmpegInstallProgress(
+                          phase: phase,
+                          percent: percent,
+                          line: line,
+                        ),
+                      );
+                    }
+                  }
+                },
+                onDone: () {
+                  stderrDone = true;
+                  finishIfDone();
+                },
+                onError: controller.addError,
+              );
+        })
+        .catchError((Object e) {
+          if (!controller.isClosed) {
+            controller.addError(StateError('无法启动 brew：$e'));
+            controller.close();
           }
-        }
-      }, onDone: () {
-        stderrDone = true;
-        finishIfDone();
-      }, onError: controller.addError);
-    }).catchError((Object e) {
-      if (!controller.isClosed) {
-        controller.addError(StateError('无法启动 brew：$e'));
-        controller.close();
-      }
-    });
+        });
 
     return controller.stream;
   }

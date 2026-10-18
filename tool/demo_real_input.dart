@@ -83,11 +83,11 @@ Future<void> main() async {
       final y = double.parse(m.group(2)!);
       stdout.writeln('composer 中点：($x, $y)  $foundRaw');
       await dispatchInput(page, {
-        'kind': 'mouse', 'type': 'down', 'x': x, 'y': y, 'button': 'left',
+        'kind': 'mouse', 'action': 'down', 'x': x, 'y': y, 'button': 'left',
       });
       inputs++;
       await dispatchInput(page, {
-        'kind': 'mouse', 'type': 'up', 'x': x, 'y': y, 'button': 'left',
+        'kind': 'mouse', 'action': 'up', 'x': x, 'y': y, 'button': 'left',
       });
       inputs++;
       await Future<void>.delayed(const Duration(milliseconds: 500));

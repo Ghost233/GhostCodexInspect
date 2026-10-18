@@ -114,6 +114,7 @@ class HostController extends ChangeNotifier {
 
   /// 生效调试端口：profile 默认值，loadSettings() 可覆盖，UI 可改。
   static const String _kDebugPortKey = 'gci.debugPort';
+  static const String _kRelayPortKey = 'gci.relayPort';
 
   /// 当前使用的 CDP 调试端口（可在启动器页修改并持久化，#26）。
   int get debugPort => _debugPort;
@@ -130,14 +131,36 @@ class HostController extends ChangeNotifier {
     await prefs.setInt(_kDebugPortKey, port);
   }
 
+  /// 中转台远程访问端口：0 = 随机（默认），否则固定（多实例并存时
+  /// 各配不同端口，#26）。
+  int get relayPort => _relayPort;
+  int _relayPort = 0;
+
+  /// 修改中转端口（0 或 1024-65535），持久化到本机设置。
+  /// 中转运行中修改会在下次启动中转时生效。
+  Future<void> setRelayPort(int port) async {
+    if (port != 0 && (port < 1024 || port > 65535)) {
+      throw ArgumentError('端口须是 0（随机）或 1024-65535：$port');
+    }
+    _relayPort = port;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kRelayPortKey, port);
+  }
+
   /// 启动时加载持久化设置（端口等）。
   Future<void> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     final port = prefs.getInt(_kDebugPortKey);
     if (port != null && port >= 1024 && port <= 65535) {
       _debugPort = port;
-      notifyListeners();
     }
+    final relayPort = prefs.getInt(_kRelayPortKey);
+    if (relayPort != null &&
+        (relayPort == 0 || (relayPort >= 1024 && relayPort <= 65535))) {
+      _relayPort = relayPort;
+    }
+    notifyListeners();
   }
 
   Future<void> _run(String action, Future<void> Function() body) async {
@@ -222,7 +245,7 @@ class HostController extends ChangeNotifier {
 
   /// 启动中转（默认绑 127.0.0.1）。
   Future<void> startRelay() => _run('启动中转', () async {
-    await launcher.startRelay(allowLanAccess: allowLanAccess);
+    await launcher.startRelay(allowLanAccess: allowLanAccess, port: _relayPort);
     // 顺带探测编码能力（#25），驱动中转台矩阵与视频设置可用性
     await refreshVideoCapabilities();
   });
@@ -239,7 +262,7 @@ class HostController extends ChangeNotifier {
     if (launcher.relay.isRunning) {
       if (sessionKind != SessionKind.none) await stopSession();
       await launcher.stopRelay();
-      await launcher.startRelay(allowLanAccess: allowLanAccess);
+      await launcher.startRelay(allowLanAccess: allowLanAccess, port: _relayPort);
     }
   });
 

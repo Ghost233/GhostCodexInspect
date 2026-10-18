@@ -31,8 +31,8 @@ class LauncherConnection {
 
   /// 启动中转（宿主 UI 入口）。默认绑 127.0.0.1；[allowLanAccess] 为
   /// 「允许局域网访问」开关，打开时绑 LAN 网卡 IPv4，绝不绑 0.0.0.0。
-  Future<void> startRelay({bool allowLanAccess = false}) =>
-      _relay.start(allowLanAccess: allowLanAccess);
+  Future<void> startRelay({bool allowLanAccess = false, int port = 0}) =>
+      _relay.start(allowLanAccess: allowLanAccess, port: port);
 
   /// 停止中转（宿主 UI 入口）：回收端口、踢掉远程端，不退出进程。
   Future<void> stopRelay() => _relay.stop();

@@ -81,6 +81,7 @@ class _ServerCard extends StatelessWidget {
             label: '允许局域网访问',
             value: controller.allowLanAccess ? '开（绑 LAN IP）' : '关（仅 127.0.0.1）',
           ),
+          _RelayPortEditor(controller: controller, running: running),
           const SizedBox(height: 12),
           Wrap(
             spacing: 8,
@@ -511,6 +512,80 @@ class _VideoCapsCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 中转端口编辑行（#26）：0=随机（默认），固定端口供多实例并存。
+/// 中转运行中修改会在下次启动中转时生效。
+class _RelayPortEditor extends StatefulWidget {
+  const _RelayPortEditor({required this.controller, required this.running});
+
+  final HostController controller;
+  final bool running;
+
+  @override
+  State<_RelayPortEditor> createState() => _RelayPortEditorState();
+}
+
+class _RelayPortEditorState extends State<_RelayPortEditor> {
+  late final TextEditingController _text =
+      TextEditingController(text: '${widget.controller.relayPort}');
+  String? _error;
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  Future<void> _apply() async {
+    final port = int.tryParse(_text.text.trim());
+    if (port == null || (port != 0 && (port < 1024 || port > 65535))) {
+      setState(() => _error = '0（随机）或 1024-65535');
+      return;
+    }
+    await widget.controller.setRelayPort(port);
+    setState(() => _error = null);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        SizedBox(
+          width: 120,
+          child: Text('远程访问端口', style: theme.textTheme.bodyMedium),
+        ),
+        SizedBox(
+          width: 96,
+          child: TextField(
+            controller: _text,
+            enabled: !widget.running,
+            keyboardType: TextInputType.number,
+            style: theme.textTheme.bodyMedium,
+            decoration: InputDecoration(
+              isDense: true,
+              errorText: _error,
+              border: const OutlineInputBorder(),
+            ),
+            onSubmitted: (_) => _apply(),
+          ),
+        ),
+        const SizedBox(width: 8),
+        TextButton(
+          onPressed: widget.running ? null : _apply,
+          child: const Text('应用'),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            widget.running ? '运行中不可改；停止中转后可修改' : '0 = 随机端口',
+            style: theme.textTheme.bodySmall,
+          ),
+        ),
+      ],
     );
   }
 }

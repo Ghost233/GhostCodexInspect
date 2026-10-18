@@ -219,6 +219,26 @@ void main() {
       expect(() => c.setDebugPort(70000), throwsArgumentError);
     });
 
+    test('中转端口：默认随机(0)，可固定并持久化', () async {
+      SharedPreferences.setMockInitialValues({});
+      final c = HostController(autoRefresh: false);
+      addTearDown(c.dispose);
+      expect(c.relayPort, 0);
+      await c.setRelayPort(9410);
+      expect(c.relayPort, 9410);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getInt('gci.relayPort'), 9410);
+      expect(() => c.setRelayPort(80), throwsArgumentError);
+      await c.setRelayPort(0);
+      expect(c.relayPort, 0);
+
+      SharedPreferences.setMockInitialValues({'gci.relayPort': 9411});
+      final c2 = HostController(autoRefresh: false);
+      addTearDown(c2.dispose);
+      await c2.loadSettings();
+      expect(c2.relayPort, 9411);
+    });
+
     test('loadSettings 读取持久化端口，非法值回落默认', () async {
       SharedPreferences.setMockInitialValues({'gci.debugPort': 9301});
       final c = HostController(autoRefresh: false);

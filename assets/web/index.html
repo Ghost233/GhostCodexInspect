@@ -44,6 +44,10 @@
   <!-- 错误横幅：鉴权失败 / 协议错误等需要用户注意的情况 -->
   <div id="error-banner" class="error-banner hidden" role="alert"></div>
 
+  <!-- shell 页签栏（#16）：目标应用有多个 shell 页面（主窗口 / 分离窗口 /
+       头像浮层等）时切换接管对象；数据来自宿主广播的 ctrl shells 信封 -->
+  <nav id="shell-tabs" class="shell-tabs hidden" role="tablist" aria-label="shell 页面切换"></nav>
+
   <!-- 主区域：DOM 重绘模式的 iframe 舞台 / 画面流模式占位 -->
   <main class="stage">
     <section id="stage-dom" class="stage-pane" aria-label="DOM 重绘模式">

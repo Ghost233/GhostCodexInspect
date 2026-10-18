@@ -46,6 +46,20 @@ export class ScreencastView {
     }
   }
 
+  /** 清空当前画面（#16 tab 切换：旧 shell 的帧不再有效，回到等待态）。 */
+  reset() {
+    this.viewport = null;
+    if (this._blobUrl) {
+      URL.revokeObjectURL(this._blobUrl);
+      this._blobUrl = null;
+    }
+    if (this.img) {
+      this.img.removeAttribute('src');
+      this.img.classList.remove('has-frame');
+    }
+    if (this.placeholder) this.placeholder.classList.remove('hidden');
+  }
+
   /** 处理 frame 通道信封。 */
   handleFrameMessage(type, data) {
     if (type === 'meta') {

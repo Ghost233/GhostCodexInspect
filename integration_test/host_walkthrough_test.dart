@@ -85,6 +85,25 @@ void main() {
     await settle(8); // 注入 + 首份全量快照（真机 2.86MB，经压缩下发）
     expectText('停止会话', '会话控制区应可用');
 
+    // ── ③b shell tab 切换（#16）：真机有多个 shell（主窗口/分离窗口/
+    //     头像浮层），切到非当前目标再切回，验证会话随目标重建 ──
+    expect(
+      controller.shellTargets.length,
+      greaterThanOrEqualTo(2),
+      reason: '真机应枚举出多个 shell。${dump()}',
+    );
+    final originalId = controller.activeShellTargetId!;
+    final other = controller.shellTargets
+        .firstWhere((t) => t.id != originalId);
+    await controller.switchTarget(other.id);
+    await settle(8); // 停旧会话 + attach 新 shell + 重建 DOM 会话
+    expect(controller.activeShellTargetId, other.id, reason: dump());
+    expect(controller.sessionKind, SessionKind.dom, reason: dump());
+    expect(controller.lastError, isNull, reason: dump());
+    await controller.switchTarget(originalId);
+    await settle(8);
+    expect(controller.activeShellTargetId, originalId, reason: dump());
+
     // ── ④ 远程视图：本机只读预览 ────────────────────────────
     await tapText('远程视图');
     await settle(4);

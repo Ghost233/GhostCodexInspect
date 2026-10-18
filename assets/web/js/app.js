@@ -72,6 +72,49 @@ function hideError() {
   errorBanner.classList.add('hidden');
 }
 
+/* ---------- shell 页签栏（#16）：多 shell 页面切换 ---------- */
+
+/**
+ * 渲染 shell 页签。data = {targets: [{id,title,url,primary}], activeId}
+ * （宿主 ctrl shells 广播）。单个 shell 时隐藏整栏。
+ * @param {import('./ws-client.js').RelayClient} client
+ * @param {() => void} onBeforeSwitch 切换前的视图复位（占位层/帧清理）
+ */
+function renderShellTabs(data, client, onBeforeSwitch) {
+  const bar = $('shell-tabs');
+  if (!bar) return;
+  const targets = (data && Array.isArray(data.targets)) ? data.targets : [];
+  if (targets.length < 2) {
+    bar.classList.add('hidden');
+    bar.replaceChildren();
+    return;
+  }
+  bar.classList.remove('hidden');
+  bar.replaceChildren();
+  for (const t of targets) {
+    const btn = document.createElement('button');
+    btn.className = 'shell-tab';
+    btn.setAttribute('role', 'tab');
+    const active = t.id === data.activeId;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-selected', String(active));
+    // 标签：标题优先；空标题用 url 尾部；主窗口加标记
+    let label = (t.title || '').trim();
+    if (!label) {
+      try { label = new URL(t.url).pathname.split('/').pop() || t.url; }
+      catch { label = t.url || t.id; }
+    }
+    btn.textContent = t.primary ? `${label} · 主窗口` : label;
+    btn.title = t.url || '';
+    btn.addEventListener('click', () => {
+      if (active) return;
+      onBeforeSwitch();
+      client.switchTarget(t.id);
+    });
+    bar.appendChild(btn);
+  }
+}
+
 /* ---------- 启动 ---------- */
 
 function main() {
@@ -113,6 +156,13 @@ function main() {
         }
       } else if (envelope.ch === 'frame') {
         screencastView.handleFrameMessage(envelope.t, envelope.data);
+      } else if (envelope.ch === 'ctrl' && envelope.t === 'shells') {
+        // #16：shell 页签栏；点击切换时先复位两个视图，再请求宿主重建会话
+        renderShellTabs(envelope.data, client, () => {
+          const placeholder = $('stage-placeholder');
+          if (placeholder) placeholder.classList.remove('hidden');
+          screencastView.reset();
+        });
       }
       // ctrl 的其余类型：本期留钩子，不处理
     },

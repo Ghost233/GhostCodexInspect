@@ -220,7 +220,19 @@ class HostController extends ChangeNotifier {
   DomSession? _domSession;
   ScreencastSession? _screencastSession;
 
+  /// 最近一次会话枚举到的 shell 页面清单（#16 tab 切换数据源）。
+  List<CdpTargetInfo> _shellTargets = const [];
+
+  /// 当前会话接管的 shell 目标 id。
+  String? _activeTargetId;
+
   SessionKind get sessionKind => _sessionKind;
+
+  /// shell 页面清单（无会话时为空；#16）。
+  List<CdpTargetInfo> get shellTargets => _shellTargets;
+
+  /// 当前接管的 shell 目标 id（无会话时为 null）。
+  String? get activeShellTargetId => _activeTargetId;
 
   /// 当前会话状态快照（无会话时为 null）。
   Object? get sessionStatus => switch (_sessionKind) {
@@ -234,8 +246,9 @@ class HostController extends ChangeNotifier {
 
   /// 启动接管会话：attach shell 页面后按种类创建 Dom/Screencast 会话。
   ///
-  /// 中转必须先运行（会话要往 dom/frame 通道广播）。
-  Future<void> startSession(SessionKind kind) =>
+  /// 中转必须先运行（会话要往 dom/frame 通道广播）。[targetId] 指定
+  /// 接管的 shell 页面（#16 tab 切换）；缺省取主窗口。
+  Future<void> startSession(SessionKind kind, {String? targetId}) =>
       _run('启动${kind.label}会话', () async {
         if (kind == SessionKind.none) return;
         if (_sessionKind != SessionKind.none) {
@@ -248,15 +261,35 @@ class HostController extends ChangeNotifier {
         final connection = await _cdpConnector(debugPort: debugPort);
         try {
           final targets = await connection.client.listTargets();
-          final shell = findShellTarget(targets, profile.shellUrlSchemes);
+          final shells = targets
+              .where((t) => isShellTarget(t, profile.shellUrlSchemes))
+              .toList(growable: false);
+          final CdpTargetInfo shell;
+          if (targetId != null) {
+            shell = shells.firstWhere(
+              (t) => t.id == targetId,
+              orElse: () => throw StateError('目标 $targetId 不是 shell 页面（或已消失）'),
+            );
+          } else {
+            shell = findShellTarget(targets, profile.shellUrlSchemes);
+          }
           final page = await connection.client.attachTo(shell);
+          void handleSwitch(String id) => unawaited(switchTarget(id));
           switch (kind) {
             case SessionKind.dom:
-              final session = DomSession(page: page, relay: relay);
+              final session = DomSession(
+                page: page,
+                relay: relay,
+                onSwitchRequested: handleSwitch,
+              );
               await session.start();
               _domSession = session;
             case SessionKind.screencast:
-              final session = ScreencastSession(page: page, relay: relay);
+              final session = ScreencastSession(
+                page: page,
+                relay: relay,
+                onSwitchRequested: handleSwitch,
+              );
               await session.start();
               _screencastSession = session;
             case SessionKind.none:
@@ -264,11 +297,47 @@ class HostController extends ChangeNotifier {
           }
           _cdpConnection = connection;
           _sessionKind = kind;
+          _shellTargets = shells;
+          _activeTargetId = shell.id;
+          _broadcastShells(relay);
         } on Object {
           await connection.client.close();
           rethrow;
         }
       });
+
+  /// 切换接管的 shell 页面（#16）：停当前会话、attach 新目标、
+  /// 以相同模式重建会话。无会话或目标即当前目标时为 no-op；
+  /// 目标不在已枚举的 shell 清单中时报错且**不动当前会话**（先校验
+  /// 再切换，避免非法目标把会话打掉）。
+  Future<void> switchTarget(String targetId) async {
+    final kind = _sessionKind;
+    if (kind == SessionKind.none || busy) return;
+    if (targetId == _activeTargetId) return;
+    if (!_shellTargets.any((t) => t.id == targetId)) {
+      lastError = '目标 $targetId 不是 shell 页面（或已消失）';
+      notifyListeners();
+      return;
+    }
+    await stopSession();
+    await startSession(kind, targetId: targetId);
+  }
+
+  /// 向远程端广播 shell 清单（tab 栏数据源）。
+  void _broadcastShells(RelayServer relay) {
+    relay.broadcast(RelayChannel.ctrl, RelayMessageType.shells, {
+      'targets': [
+        for (final t in _shellTargets)
+          {
+            'id': t.id,
+            'title': t.title,
+            'url': t.url,
+            'primary': isPrimaryShellTarget(t, profile.shellUrlSchemes),
+          },
+      ],
+      'activeId': _activeTargetId,
+    });
+  }
 
   /// 停止接管会话并断开 CDP（不杀目标应用进程）。幂等。
   Future<void> stopSession() async {
@@ -279,6 +348,8 @@ class HostController extends ChangeNotifier {
     _sessionKind = SessionKind.none;
     await _cdpConnection?.client.close();
     _cdpConnection = null;
+    _shellTargets = const [];
+    _activeTargetId = null;
     notifyListeners();
   }
 

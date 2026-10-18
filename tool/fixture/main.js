@@ -8,8 +8,16 @@ function createWindow() {
   win.loadFile('index.html');
 }
 
+// --gci-second-window：开第二窗口（加载 second.html），用于 #16
+// 多 shell tab 切换的 E2E（tool/verify_tab_switch.dart）。
+const openSecondWindow = process.argv.includes('--gci-second-window');
+
 app.whenReady().then(() => {
   createWindow();
+  if (openSecondWindow) {
+    const second = new BrowserWindow({ width: 480, height: 320 });
+    second.loadFile('second.html');
+  }
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

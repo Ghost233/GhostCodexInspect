@@ -63,6 +63,12 @@ class _FakeCdpClient implements CdpClient {
       title: 'ChatGPT',
     ),
     CdpTargetInfo(
+      id: 'shell-2',
+      type: 'page',
+      url: 'app://chatgpt.com/detached-window.html?initialRoute=%2Fdetached',
+      title: 'ChatGPT · 分离窗口',
+    ),
+    CdpTargetInfo(
       id: 'worker-1',
       type: 'service_worker',
       url: 'app://chatgpt.com/sw.js',
@@ -152,5 +158,40 @@ void main() {
     expect(controller.allowLanAccess, isTrue);
     // 重启换令牌：访问地址整体变化
     expect(controller.accessUrl.toString(), isNot(before));
+  });
+
+  test('会话枚举 shell 清单并接管主窗口（#16）', () async {
+    await controller.startRelay();
+    await controller.startSession(SessionKind.screencast);
+    expect(controller.lastError, isNull);
+    expect(controller.shellTargets.map((t) => t.id), ['shell-1', 'shell-2']);
+    // 默认接管主窗口（无 initialRoute 的 shell）
+    expect(controller.activeShellTargetId, 'shell-1');
+    expect(fakeClient.lastPage!.target.id, 'shell-1');
+  });
+
+  test('switchTarget：停旧会话并以相同模式接管新 shell（#16）', () async {
+    await controller.startRelay();
+    await controller.startSession(SessionKind.screencast);
+    expect(controller.activeShellTargetId, 'shell-1');
+
+    await controller.switchTarget('shell-2');
+    expect(controller.lastError, isNull);
+    // 会话保持画面流模式，目标换成 shell-2
+    expect(controller.sessionKind, SessionKind.screencast);
+    expect(controller.activeShellTargetId, 'shell-2');
+    expect(fakeClient.lastPage!.target.id, 'shell-2');
+
+    // 当前目标 / 不存在目标 / 无会话场景均为安全 no-op 或报错
+    await controller.switchTarget('shell-2');
+    expect(controller.activeShellTargetId, 'shell-2');
+    await controller.switchTarget('worker-1');
+    expect(controller.lastError, contains('不是 shell 页面'));
+    expect(controller.activeShellTargetId, 'shell-2');
+
+    await controller.stopSession();
+    expect(controller.shellTargets, isEmpty);
+    expect(controller.activeShellTargetId, isNull);
+    await controller.switchTarget('shell-1'); // 无会话 no-op，不崩溃
   });
 }

@@ -50,6 +50,7 @@ class DomSession {
     required this.relay,
     this.collectorSource,
     this.compressionMinBytes = kCompressionMinBytes,
+    this.onSwitchRequested,
   });
 
   /// 目标页面（已 attach 的 shell 会话）。
@@ -66,6 +67,11 @@ class DomSession {
   /// 压缩后远程端用 fflate 解压；0 = 全部压缩（测试用），
   /// 大数 = 实际关闭。默认 [kCompressionMinBytes]。
   final int compressionMinBytes;
+
+  /// 远程端请求切换 shell 页面（ctrl `switchTarget`，工单 #16）时的
+  /// 回调，参数为目标 id。会话自身不处理切换（要换 page），由宿主
+  /// 编排层停本会话并重建。
+  final void Function(String targetId)? onSwitchRequested;
 
   StreamSubscription<String>? _bindingSub;
   String? _lastError;
@@ -186,6 +192,13 @@ class DomSession {
       case (RelayChannel.dom, RelayMessageType.resync):
       case (RelayChannel.ctrl, RelayMessageType.resync):
         _resync();
+      case (RelayChannel.ctrl, RelayMessageType.switchTarget):
+        // #16：切换请求透传给宿主编排层；targetId 非法时丢弃。
+        final targetId = switch (envelope.data) {
+          {'targetId': final String id} when id.isNotEmpty => id,
+          _ => null,
+        };
+        if (targetId != null) onSwitchRequested?.call(targetId);
       case (RelayChannel.input, RelayMessageType.input):
         _dispatchClientInput(envelope.data);
       default:

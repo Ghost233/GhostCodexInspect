@@ -57,6 +57,7 @@ class ScreencastSession {
     this.everyNthFrame = 4,
     this.maxWidth,
     this.maxHeight,
+    this.onSwitchRequested,
   });
 
   /// 目标页面（已 attach 的 shell 会话）。
@@ -75,6 +76,11 @@ class ScreencastSession {
   /// 帧最大宽/高（CDP 侧缩放；null = 不限制）。
   final int? maxWidth;
   final int? maxHeight;
+
+  /// 远程端请求切换 shell 页面（ctrl `switchTarget`，工单 #16）时的
+  /// 回调，参数为目标 id。会话自身不处理切换（要换 page），由宿主
+  /// 编排层停本会话并重建。
+  final void Function(String targetId)? onSwitchRequested;
 
   StreamSubscription<ScreencastFrameData>? _frameSub;
   String? _lastError;
@@ -220,12 +226,22 @@ class ScreencastSession {
     );
   }
 
-  /// 远程端消息：仅消费 input（画面流模式的坐标基准是视口 CSS 像素，
-  /// 与 DOM 模式同一 payload schema）。
+  /// 远程端消息：消费 input（画面流模式的坐标基准是视口 CSS 像素，
+  /// 与 DOM 模式同一 payload schema）与 ctrl `switchTarget`（#16，
+  /// 透传给宿主编排层处理切换）。
   void _onClientMessage(int clientId, RelayEnvelope envelope) {
     if (envelope.channel == RelayChannel.input &&
         envelope.type == RelayMessageType.input) {
       _dispatchClientInput(envelope.data);
+      return;
+    }
+    if (envelope.channel == RelayChannel.ctrl &&
+        envelope.type == RelayMessageType.switchTarget) {
+      final targetId = switch (envelope.data) {
+        {'targetId': final String id} when id.isNotEmpty => id,
+        _ => null,
+      };
+      if (targetId != null) onSwitchRequested?.call(targetId);
     }
   }
 

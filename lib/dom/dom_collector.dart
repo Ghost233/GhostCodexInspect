@@ -14,6 +14,8 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import '../relay/relay_server.dart';
+
 /// 采集器回传事件的 CDP binding 名（页面全局函数 `window.__gciEmit`）。
 const String kEmitBindingName = '__gciEmit';
 
@@ -141,14 +143,29 @@ String buildCollectorSource(String recorderSource) {
 
 /// 从默认 vendor 路径读取 recorder 源码并构建注入脚本。
 ///
-/// [recorderPath] 可覆盖（测试用）；默认 [kRecorderAssetPath]
-/// （相对进程工作目录，tool 脚本与 Flutter debug run 均为仓库根）。
+/// [recorderPath] 可覆盖（测试用）。默认依次尝试：相对进程工作目录的
+/// [kRecorderAssetPath]（tool 脚本与 Flutter debug run 为仓库根）→
+/// [RelayServer.resolveWebRoot] 的 vendor 子路径（打包 app / 集成测试
+/// 运行时 cwd 不是仓库根，与静态根同一套解析）。
 Future<String> loadCollectorSource({String? recorderPath}) async {
-  final file = File(recorderPath ?? kRecorderAssetPath);
-  if (!file.existsSync()) {
-    throw StateError('未找到 rrweb record vendor 文件：${file.path}');
+  if (recorderPath != null) {
+    final file = File(recorderPath);
+    if (!file.existsSync()) {
+      throw StateError('未找到 rrweb record vendor 文件：$recorderPath');
+    }
+    return buildCollectorSource(await file.readAsString());
   }
-  return buildCollectorSource(await file.readAsString());
+  final candidates = {
+    kRecorderAssetPath,
+    '${RelayServer.resolveWebRoot()}/vendor/rrweb-record.js',
+  };
+  for (final path in candidates) {
+    final file = File(path);
+    if (file.existsSync()) {
+      return buildCollectorSource(await file.readAsString());
+    }
+  }
+  throw StateError('未找到 rrweb record vendor 文件（已尝试：${candidates.join('、')}）');
 }
 
 /// 一批 rrweb 事件的分类结果（宿主据此映射信封类型）。

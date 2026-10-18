@@ -92,7 +92,7 @@ const CHANNEL_NAMES = ['dom', 'frame', 'input', 'ctrl'];
 /** 类型 id ↔ 名（与 RelayMessageType 枚举序一致，id = 序 + 1） */
 const TYPE_NAMES = [
   'meta', 'full', 'inc', 'batch', 'resync', 'ping', 'pong',
-  'auth', 'authOk', 'authErr', 'input', 'frame',
+  'auth', 'authOk', 'authErr', 'input', 'frame', 'shells', 'switchTarget',
 ];
 
 /**
@@ -312,6 +312,15 @@ export class RelayClient {
   /** 可信输入发送口（input 通道、t='input'；#11 接通后使用，本期为占位，未连接时安全返回 false） */
   sendInput(payload) {
     return this._send('input', 'input', payload);
+  }
+
+  /**
+   * 请求切换到指定 shell 页面（ctrl 通道 switchTarget，#16 tab 切换）。
+   * 宿主停当前会话、attach 目标页后以相同模式重建会话，随后重新广播
+   * shells 清单（activeId 更新）与新页面的 meta/full。
+   */
+  switchTarget(targetId) {
+    return this._send('ctrl', 'switchTarget', { targetId });
   }
 
   _setState(state, detail) {

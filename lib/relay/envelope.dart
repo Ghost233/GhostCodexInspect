@@ -40,7 +40,12 @@ enum RelayChannel {
 /// - `ping`/`pong`：应用层心跳；
 /// - `auth`/`authOk`/`authErr`：WS 首消息令牌鉴权握手；
 /// - `input`：input 通道的可信输入事件（远程端 → 宿主，#11 接通）；
-/// - `frame`：frame 通道的画面流帧（宿主 → 远程端，#12 接通）。
+/// - `frame`：frame 通道的画面流帧（宿主 → 远程端，#12 接通）；
+/// - `shells`：宿主→远程端的 shell 页面清单（`ch=ctrl`，#16 tab 切换）；
+/// - `switchTarget`：远程端→宿主的 shell 切换请求（`ch=ctrl`，#16）。
+///
+/// ⚠️ 二进制帧（v2）的类型 id 派生自枚举序 + 1：新类型只允许追加在
+/// 末尾，禁止中间插入或重排，否则新旧两端解码错位。
 enum RelayMessageType {
   meta,
   full,
@@ -53,7 +58,13 @@ enum RelayMessageType {
   authOk,
   authErr,
   input,
-  frame;
+  frame,
+
+  /// data = {targets: [{id, title, url, primary}], activeId}。
+  shells,
+
+  /// data = {targetId}；宿主停当前会话、attach 目标页后重建同类会话。
+  switchTarget;
 
   static RelayMessageType? tryParse(String name) =>
       RelayMessageType.values.asNameMap()[name];

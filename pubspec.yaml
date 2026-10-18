@@ -70,7 +70,12 @@ flutter:
 
   assets:
     # 远程端纯静态单页（#9），由宿主中转伺服（#8）。
+    # 注意：目录声明只打包直接子文件，子目录须逐个列出
+    # （2026-10-18 集成测试实锤：js/css/vendor 曾全部缺失）。
     - assets/web/
+    - assets/web/css/
+    - assets/web/js/
+    - assets/web/vendor/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

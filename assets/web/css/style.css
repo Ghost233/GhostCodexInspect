@@ -260,3 +260,33 @@ body {
 .screencast-img.has-frame {
   display: block;
 }
+
+/* ---------- shell 页签栏（#16） ---------- */
+.shell-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border, #333);
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+.shell-tab {
+  appearance: none;
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  padding: 4px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.shell-tab:hover { background: rgba(128, 128, 128, 0.15); }
+.shell-tab.active {
+  background: var(--accent, #0a84ff);
+  border-color: var(--accent, #0a84ff);
+  color: #fff;
+}

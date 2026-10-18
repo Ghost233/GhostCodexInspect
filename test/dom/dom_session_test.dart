@@ -90,6 +90,7 @@ void main() {
   late DomSession session;
   late WebSocketChannel channel;
   late _Queue queue;
+  final List<String> switchRequests = [];
 
   Future<RelayEnvelope> nextEnvelope() async {
     final raw = await queue.next.timeout(const Duration(seconds: 5));
@@ -102,7 +103,12 @@ void main() {
     relay = RelayServer(staticDir: staticDir.path);
     await relay.start();
     page = FakeCdpPage();
-    session = DomSession(page: page, relay: relay, collectorSource: '// test');
+    session = DomSession(
+      page: page,
+      relay: relay,
+      collectorSource: '// test',
+      onSwitchRequested: switchRequests.add,
+    );
 
     channel = WebSocketChannel.connect(
       Uri.parse('ws://127.0.0.1:${relay.port}/ws'),
@@ -206,6 +212,55 @@ void main() {
     page.bindingController.add('[{"type":4,"data":{},"timestamp":1}]');
     final meta = await nextEnvelope();
     expect(meta.type, RelayMessageType.meta);
+  });
+
+  test('远程端 ctrl switchTarget 透传给 onSwitchRequested（#16）', () async {
+    channel.sink.add(
+      RelayEnvelope(
+        channel: RelayChannel.ctrl,
+        type: RelayMessageType.switchTarget,
+        seq: 3,
+        ts: 0,
+        data: {'targetId': 'shell-2'},
+      ).encode(),
+    );
+    await _waitFor(() => switchRequests.contains('shell-2'));
+
+    // 非法 targetId（空串/非字符串）不触发回调
+    channel.sink.add(
+      RelayEnvelope(
+        channel: RelayChannel.ctrl,
+        type: RelayMessageType.switchTarget,
+        seq: 4,
+        ts: 0,
+        data: {'targetId': ''},
+      ).encode(),
+    );
+    channel.sink.add(
+      RelayEnvelope(
+        channel: RelayChannel.ctrl,
+        type: RelayMessageType.switchTarget,
+        seq: 5,
+        ts: 0,
+        data: {'targetId': 42},
+      ).encode(),
+    );
+    // 给坏消息留处理窗口：用一条 resync 后的 evaluate 作为同步点
+    channel.sink.add(
+      RelayEnvelope(
+        channel: RelayChannel.ctrl,
+        type: RelayMessageType.resync,
+        seq: 6,
+        ts: 0,
+        data: const {},
+      ).encode(),
+    );
+    await _waitFor(
+      () => page.evaluated
+          .where((e) => e.contains(kResyncFunctionName))
+          .isNotEmpty,
+    );
+    expect(switchRequests, ['shell-2']);
   });
 
   test('远程端 ctrl resync 触发页面 __gciResync evaluate', () async {

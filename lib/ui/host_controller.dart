@@ -2,7 +2,7 @@
 ///
 /// 聚合：MacLauncher 连接（lib/sdk/）、目标应用检测与带参启动
 ///（lib/launcher/）、检查器探针（lib/inspector/）、中转（lib/relay/）、
-/// 远程接管会话（lib/dom/ 与 lib/screencast/，一期互斥）。
+/// 远程接管会话（lib/dom/ 与 lib/video/，一期互斥）。
 ///
 /// 测试约定：传 `autoRefresh: false` 关闭周期刷新定时器（widget 测试
 /// 不允许悬挂 Timer）；会话/CDP 用 [cdpConnector] 注入替身。
@@ -18,7 +18,6 @@ import '../dom/dom.dart';
 import '../inspector/inspector.dart';
 import '../launcher/launcher.dart';
 import '../relay/relay.dart';
-import '../screencast/screencast.dart';
 import '../video/video.dart';
 import '../sdk/launcher_connection.dart';
 
@@ -26,7 +25,6 @@ import '../sdk/launcher_connection.dart';
 enum SessionKind {
   none('无会话'),
   dom('DOM 重绘'),
-  screencast('画面流'),
   video('视频流');
 
   const SessionKind(this.label);
@@ -197,6 +195,8 @@ class HostController extends ChangeNotifier {
   /// 启动中转（默认绑 127.0.0.1）。
   Future<void> startRelay() => _run('启动中转', () async {
     await launcher.startRelay(allowLanAccess: allowLanAccess);
+    // 顺带探测编码能力（#25），驱动中转台矩阵与视频设置可用性
+    await refreshVideoCapabilities();
   });
 
   /// 停止中转（回收端口、踢掉远程端）。
@@ -220,8 +220,54 @@ class HostController extends ChangeNotifier {
   SessionKind _sessionKind = SessionKind.none;
   CdpConnection? _cdpConnection;
   DomSession? _domSession;
-  ScreencastSession? _screencastSession;
   VideoSession? _videoSession;
+
+  /// 视频流编码参数（#25）：启动视频会话时生效。
+  VideoCodecKind videoCodec = VideoCodecKind.h264;
+  VideoEncoderKind videoEncoderKind = VideoEncoderKind.auto;
+
+  /// 压缩分辨率上限（宽度 px，null=原始）。
+  int? videoMaxWidth = 1280;
+
+  /// 码率（kbps，null=编码器自动）。
+  int? videoBitrateKbps;
+
+  void setVideoCodec(VideoCodecKind v) {
+    videoCodec = v;
+    notifyListeners();
+  }
+
+  void setVideoEncoderKind(VideoEncoderKind v) {
+    videoEncoderKind = v;
+    notifyListeners();
+  }
+
+  void setVideoMaxWidth(int? v) {
+    videoMaxWidth = v;
+    notifyListeners();
+  }
+
+  void setVideoBitrateKbps(int? v) {
+    videoBitrateKbps = v;
+    notifyListeners();
+  }
+
+  /// 编码能力矩阵（#25）：refreshVideoCapabilities 后填充。
+  List<EncoderCapability> encoderCapabilities = const [];
+
+  /// 探测到的 ffmpeg 路径（未找到为 null）。
+  String? ffmpegPath;
+
+  /// 探测 ffmpeg 与各编码器可用性（编译级；硬编实际可用性以会话
+  /// 启动时的 2s 探测回退为准）。
+  Future<void> refreshVideoCapabilities() async {
+    final lookup = await const FfmpegLocator().find();
+    ffmpegPath = lookup.path;
+    encoderCapabilities = lookup.available
+        ? await probeEncoderCapabilities(lookup.path!)
+        : const <EncoderCapability>[];
+    notifyListeners();
+  }
 
   /// 最近一次会话枚举到的 shell 页面清单（#16 tab 切换数据源）。
   List<CdpTargetInfo> _shellTargets = const [];
@@ -240,7 +286,6 @@ class HostController extends ChangeNotifier {
   /// 当前会话状态快照（无会话时为 null）。
   Object? get sessionStatus => switch (_sessionKind) {
     SessionKind.dom => _domSession?.status(),
-    SessionKind.screencast => _screencastSession?.status(),
     SessionKind.video => _videoSession?.status,
     SessionKind.none => null,
   };
@@ -288,18 +333,14 @@ class HostController extends ChangeNotifier {
               );
               await session.start();
               _domSession = session;
-            case SessionKind.screencast:
-              final session = ScreencastSession(
-                page: page,
-                relay: relay,
-                onSwitchRequested: handleSwitch,
-              );
-              await session.start();
-              _screencastSession = session;
             case SessionKind.video:
               final session = VideoSession(
                 page: page,
                 relay: relay,
+                codec: videoCodec,
+                encoderKind: videoEncoderKind,
+                maxWidth: videoMaxWidth,
+                bitrateKbps: videoBitrateKbps,
                 onSwitchRequested: handleSwitch,
               );
               await session.start();
@@ -354,10 +395,8 @@ class HostController extends ChangeNotifier {
   /// 停止接管会话并断开 CDP（不杀目标应用进程）。幂等。
   Future<void> stopSession() async {
     await _domSession?.stop();
-    await _screencastSession?.stop();
     await _videoSession?.stop();
     _domSession = null;
-    _screencastSession = null;
     _videoSession = null;
     _sessionKind = SessionKind.none;
     await _cdpConnection?.client.close();

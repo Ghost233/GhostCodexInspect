@@ -1,5 +1,6 @@
-/// 视频流会话（工单 #22）：CDP screencast JPEG 帧 → ffmpeg H.264 编码 →
-/// video 通道 Annex B AU 下发。与 DOM/画面流会话互斥（共享中转回调）。
+/// 视频流会话（工单 #22/#25）：CDP screencast JPEG 帧 → ffmpeg 编码 →
+/// video 通道 AU 下发（h264/hevc Annex B；av1 IVF 拆帧 OBU）。
+/// 与 DOM 会话互斥（共享中转回调）。
 ///
 /// 晚到客户端：立即补发 videoMeta，画面从下一个关键帧 AU 开始可解码
 /// （GOP 48 @ 30fps 名义值，最长等待约 1.6s；远程端在拿到关键帧前
@@ -47,7 +48,9 @@ class VideoSession {
   VideoSession({
     required this.page,
     required this.relay,
+    this.codec = VideoCodecKind.h264,
     this.encoderKind = VideoEncoderKind.auto,
+    this.bitrateKbps,
     this.quality = 60,
     this.everyNthFrame = 2,
     this.maxWidth = 1280,
@@ -57,7 +60,11 @@ class VideoSession {
 
   final CdpPage page;
   final RelayServer relay;
+  final VideoCodecKind codec;
   final VideoEncoderKind encoderKind;
+
+  /// 码率（kbps；null = 编码器自动）。
+  final int? bitrateKbps;
   final int quality;
   final int everyNthFrame;
   final int? maxWidth;
@@ -108,7 +115,9 @@ class VideoSession {
     }
     final encoder = FfmpegVideoEncoder(
       ffmpegPath: lookup.path!,
+      codec: codec,
       kind: encoderKind,
+      bitrateKbps: bitrateKbps,
     );
     await encoder.start();
     _encoder = encoder;
@@ -142,7 +151,7 @@ class VideoSession {
     );
     final map = jsonDecode(raw as String) as Map<String, dynamic>;
     relay.broadcast(RelayChannel.video, RelayMessageType.videoMeta, {
-      'codec': 'h264',
+      'codec': codec.wireTag,
       'encoder': _encoder?.activeEncoder ?? 'unknown',
       'viewportWidth': map['viewportWidth'],
       'viewportHeight': map['viewportHeight'],
@@ -162,7 +171,7 @@ class VideoSession {
 
   void _onAccessUnit(Uint8List au) {
     _ausSent++;
-    if (_containsIdr(au)) _idrAusSent++;
+    if (_isKeyframeAu(au)) _idrAusSent++;
     _bytesSent += au.length;
     if (!_firstAu.isCompleted) _firstAu.complete();
     relay.broadcast(
@@ -173,15 +182,54 @@ class VideoSession {
     );
   }
 
-  /// AU 内是否含 IDR slice（type 5）。
-  static bool _containsIdr(Uint8List au) {
-    for (var i = 0; i + 4 < au.length; i++) {
-      if (au[i] == 0 &&
-          au[i + 1] == 0 &&
-          (au[i + 2] == 1 || (au[i + 2] == 0 && au[i + 3] == 1))) {
-        final header = au[i + 2] == 1 ? i + 3 : i + 4;
-        if (header < au.length && (au[header] & 0x1f) == 5) return true;
+  /// AU 是否为关键帧（关键帧节奏诊断）：
+  /// h264=含 IDR slice（type 5）；hevc=含 IDR_N_LP(20)/IDR_W_RADL(19)；
+  /// av1=含序列头 OBU（type 1，svt-av1 每个 GOP 重发）。
+  bool _isKeyframeAu(Uint8List au) {
+    switch (codec) {
+      case VideoCodecKind.av1:
+        return _containsObuType(au, 1);
+      case VideoCodecKind.h264:
+      case VideoCodecKind.hevc:
+        for (var i = 0; i + 4 < au.length; i++) {
+          if (au[i] == 0 &&
+              au[i + 1] == 0 &&
+              (au[i + 2] == 1 || (au[i + 2] == 0 && au[i + 3] == 1))) {
+            final hi = au[i + 2] == 1 ? i + 3 : i + 4;
+            if (hi >= au.length) continue;
+            if (codec == VideoCodecKind.h264) {
+              if ((au[hi] & 0x1f) == 5) return true;
+            } else {
+              final t = (au[hi] >> 1) & 0x3f;
+              if (t == 19 || t == 20) return true;
+            }
+          }
+        }
+        return false;
+    }
+  }
+
+  /// av1 AU（低开销 OBU 载荷）内是否含指定 OBU 类型。
+  static bool _containsObuType(Uint8List au, int type) {
+    var i = 0;
+    while (i + 1 < au.length) {
+      final header = au[i];
+      final obuType = (header >> 3) & 0x0f;
+      final hasSize = (header & 0x02) != 0;
+      final hasExt = (header & 0x04) != 0;
+      var j = i + 1 + (hasExt ? 1 : 0);
+      if (obuType == type) return true;
+      if (!hasSize) break; // 无长度字段：整个剩余即该 OBU
+      // leb128 长度
+      var size = 0;
+      var shift = 0;
+      while (j < au.length) {
+        final b = au[j++];
+        size |= (b & 0x7f) << shift;
+        if ((b & 0x80) == 0) break;
+        shift += 7;
       }
+      i = j + size;
     }
     return false;
   }

@@ -50,3 +50,56 @@ class FfmpegLocator {
     return const FfmpegLookup.missing();
   }
 }
+
+/// 单个编码器的探测结果（#25 编码能力矩阵）。
+class EncoderCapability {
+  const EncoderCapability({
+    required this.name,
+    required this.codec,
+    required this.hardware,
+    required this.available,
+  });
+
+  /// ffmpeg 编码器名（如 'h264_videotoolbox'）。
+  final String name;
+
+  /// 对应编码格式 wireTag（'h264'/'hevc'/'av1'）。
+  final String codec;
+
+  /// 是否硬编（VideoToolbox）。
+  final bool hardware;
+
+  /// ffmpeg 构建中是否存在该编码器。
+  final bool available;
+}
+
+/// 探测 ffmpeg 构建内的视频编码器清单（解析 `-encoders` 输出）。
+///
+/// 只反映「编译进 ffmpeg」的能力；硬编真实可用性以会话启动时的
+/// 2s 探测回退为准（见 FfmpegVideoEncoder）。
+Future<List<EncoderCapability>> probeEncoderCapabilities(
+  String ffmpegPath,
+) async {
+  const watch = {
+    'h264_videotoolbox': ('h264', true),
+    'libx264': ('h264', false),
+    'hevc_videotoolbox': ('hevc', true),
+    'libx265': ('hevc', false),
+    'libsvtav1': ('av1', false),
+  };
+  try {
+    final result = await Process.run(ffmpegPath, ['-hide_banner', '-encoders']);
+    final text = '${result.stdout}\n${result.stderr}';
+    return [
+      for (final entry in watch.entries)
+        EncoderCapability(
+          name: entry.key,
+          codec: entry.value.$1,
+          hardware: entry.value.$2,
+          available: RegExp('\\b${entry.key}\\b').hasMatch(text),
+        ),
+    ];
+  } catch (_) {
+    return const [];
+  }
+}

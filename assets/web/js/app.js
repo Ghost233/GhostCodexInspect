@@ -4,7 +4,6 @@
 import { RelayClient, parseHashParams, defaultWsUrl } from './ws-client.js';
 import { DomReplaySession } from './replay.js';
 import { InputCaptureLayer } from './input.js';
-import { ScreencastView } from './screencast.js';
 import { VideoView } from './video.js';
 
 const $ = (id) => document.getElementById(id);
@@ -18,7 +17,6 @@ function setupModeSwitch() {
   const buttons = document.querySelectorAll('.mode-btn');
   const panes = {
     dom: $('stage-dom'),
-    screencast: $('stage-screencast'),
     video: $('stage-video'),
   };
   for (const btn of buttons) {
@@ -48,15 +46,13 @@ const SIZE_MODE_KEY = 'gci.viewSizeMode';
 
 /**
  * @param {import('./replay.js').DomReplaySession} session
- * @param {import('./screencast.js').ScreencastView} screencastView
  * @param {import('./video.js').VideoView} [videoView]
  */
-function setupSizeToggle(session, screencastView, videoView) {
+function setupSizeToggle(session, videoView) {
   const btn = $('size-toggle');
   if (!btn) return;
   const apply = (mode) => {
     session.setSizeMode(mode);
-    screencastView.setSizeMode(mode);
     if (videoView) videoView.setSizeMode(mode);
     btn.textContent = mode === 'actual' ? '原始尺寸' : '自适应';
     btn.title = mode === 'actual'
@@ -103,22 +99,42 @@ function setupVideoSettings(videoView) {
     try { localStorage.setItem(DECODE_PREF_KEY, prefSel.value); } catch { /* 忽略 */ }
     videoView.setDecodePref(prefSel.value);
   });
+  // #25：解码支持检测（本浏览器硬解/软解矩阵）
+  const probeBtn = $('probe-decode');
+  const supportEl = $('decode-support');
+  if (probeBtn && supportEl) {
+    probeBtn.addEventListener('click', async () => {
+      probeBtn.disabled = true;
+      try {
+        const { probeDecodeSupport } = await import('./video.js');
+        const rows = await probeDecodeSupport();
+        const label = { h264: 'H.264', hevc: 'H.265', av1: 'AV1' };
+        const parts = ['h264', 'hevc', 'av1'].map((c) => {
+          const wc = rows.filter((r) => r.codec === c && r.engine === 'webcodecs');
+          const hw = wc.find((r) => r.pref === 'hardware')?.supported;
+          const sw = wc.find((r) => r.pref === 'software')?.supported;
+          const mse = rows.find((r) => r.codec === c && r.engine === 'mse')?.supported;
+          return `${label[c]} 硬${hw ? '✓' : '✗'}软${sw ? '✓' : '✗'} MSE${mse ? '✓' : '✗'}`;
+        });
+        supportEl.textContent = parts.join(' ｜ ');
+        supportEl.classList.remove('hidden');
+      } finally {
+        probeBtn.disabled = false;
+      }
+    });
+  }
 }
 
 /* ---------- 顶栏：刷新新鲜度指示（#17 问题 3） ---------- */
 
 /** 各通道最近一次数据到达时间（ms epoch）。 */
-const lastDataAt = { dom: 0, frame: 0, video: 0 };
+const lastDataAt = { dom: 0, video: 0 };
 const FRESH_STALE_MS = 3000;
 
 function updateFreshness() {
   const el = $('freshness');
   if (!el) return;
-  const last = currentMode === 'screencast'
-    ? lastDataAt.frame
-    : currentMode === 'video'
-      ? lastDataAt.video
-      : lastDataAt.dom;
+  const last = currentMode === 'video' ? lastDataAt.video : lastDataAt.dom;
   if (!last) {
     el.classList.add('hidden');
     return;
@@ -272,9 +288,6 @@ function main() {
           const placeholder = $('stage-placeholder');
           if (placeholder) placeholder.classList.add('hidden');
         }
-      } else if (envelope.ch === 'frame') {
-        lastDataAt.frame = Date.now(); // #17 新鲜度指示
-        screencastView.handleFrameMessage(envelope.t, envelope.data);
       } else if (envelope.ch === 'video') {
         // #22 视频流：videoMeta/videoFrame（v2 二进制 payload 为 Uint8Array）
         lastDataAt.video = Date.now();
@@ -288,7 +301,6 @@ function main() {
         renderShellTabs(envelope.data, client, () => {
           const placeholder = $('stage-placeholder');
           if (placeholder) placeholder.classList.remove('hidden');
-          screencastView.reset();
           videoView.reset();
         });
       } else if (envelope.ch === 'ctrl' && envelope.t === 'fileChooserHint') {
@@ -299,11 +311,6 @@ function main() {
       }
       // ctrl 的其余类型：本期留钩子，不处理
     },
-  });
-
-  // 画面流视图（#12）：帧渲染 + 输入回灌；客户端创建后实例化（传 client）
-  const screencastView = new ScreencastView($('screencast-host'), client, {
-    readOnly,
   });
 
   // 视频流视图（#22）：H.264 Annex B → WebCodecs/MSE 双引擎
@@ -318,14 +325,14 @@ function main() {
     : new InputCaptureLayer(host, session, client);
 
   // #17：视图尺寸模式切换（自适应/原始尺寸，双模式同步）+ 新鲜度指示
-  setupSizeToggle(session, screencastView, videoView);
+  setupSizeToggle(session, videoView);
   setInterval(updateFreshness, 250);
 
   // 中转不可达（如本地静态伺服预览）属预期：页面显示「未连接」并自动重连
   client.connect();
 
   // 暴露调试句柄（方便在控制台验证接入点）
-  window.__remote = { client, session, inputLayer, screencastView, videoView };
+  window.__remote = { client, session, inputLayer, videoView };
 }
 
 main();

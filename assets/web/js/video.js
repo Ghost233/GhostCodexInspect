@@ -1,19 +1,23 @@
-// 视频流视图（工单 #22）：video 通道 Annex B AU → 双引擎播放。
+// 视频流视图（工单 #22/#25）：video 通道 AU → 双引擎播放。
 //
-// 引擎 1 WebCodecs（首选，低延迟 ~300ms）：Annex B AU 直接喂
-// VideoDecoder（无 description 即 Annex B 格式），canvas 上屏。
-// 引擎 2 MSE（兼容兜底）：Annex B → AVCC 转换后经 mp4-muxer 封装
-// fMP4 分片，SourceBuffer 喂 <video>。
-// 播放路径 auto=探测 WebCodecs，失败落 MSE；解码偏好映射
-// hardwareAcceleration。输入复用 Input 域链路（与画面流同构）。
+// 编码格式（videoMeta.codec 分派）：
+// - h264 / hevc：Annex B AU（h264 单字节 NAL 头；hevc 双字节头，
+//   type=(b>>1)&0x3f，参数集 VPS(32)/SPS(33)/PPS(34)）
+// - av1：低开销 OBU 流（IVF 拆帧载荷；序列头 OBU type 1 即关键帧标记）
+//
+// 引擎 1 WebCodecs（首选，低延迟）：Annex B/OBU 直喂 VideoDecoder。
+// 引擎 2 MSE（兜底）：转 AVCC/封装后经 mp4-muxer 出 fMP4 分片喂
+// SourceBuffer。解码偏好映射 hardwareAcceleration。
+// 输入复用 Input 域链路。VP9 不支持（宿主侧只有 libvpx 软编，#25）。
 import { computeScale } from './coord.js';
 import { KeyboardForwarder } from './input.js';
 import { Muxer, StreamTarget } from '../vendor/mp4-muxer.mjs';
 
-/** Annex B AU → NAL 单元数组 [{type, data(Uint8Array 含头字节)}] */
-export function splitNals(au) {
+// ===================== 位流解析 =====================
+
+/** Annex B AU → NAL 数组 [{type, data(含头字节)}]。codec: h264|hevc */
+export function splitNals(au, codec = 'h264') {
   const nals = [];
-  let i = 0;
   const n = au.length;
   const findStart = (from) => {
     for (let j = from; j + 2 < n; j++) {
@@ -31,35 +35,74 @@ export function splitNals(au) {
     if (header >= n) break;
     const next = findStart(header + 1);
     const end = next ? next[0] : n;
-    nals.push({ type: au[header] & 0x1f, data: au.subarray(header, end) });
+    const type = codec === 'hevc'
+      ? (au[header] >> 1) & 0x3f
+      : au[header] & 0x1f;
+    nals.push({ type, data: au.subarray(header, end) });
     found = next;
   }
   return nals;
 }
 
-/** SPS NAL → WebCodecs codec 字符串（avc1.PPCCLL） */
+/** 低开销 OBU 流 → [{type, data(含 OBU 头)}]。type=(b>>3)&0x0f */
+export function splitObus(payload) {
+  const obus = [];
+  let i = 0;
+  while (i + 1 < payload.length) {
+    const header = payload[i];
+    const type = (header >> 3) & 0x0f;
+    const hasExt = (header & 0x04) !== 0;
+    const hasSize = (header & 0x02) !== 0;
+    let j = i + 1 + (hasExt ? 1 : 0);
+    let size = payload.length - j;
+    if (hasSize) {
+      size = 0;
+      let shift = 0;
+      while (j < payload.length) {
+        const b = payload[j++];
+        size |= (b & 0x7f) << shift;
+        if ((b & 0x80) === 0) break;
+        shift += 7;
+      }
+    }
+    obus.push({ type, data: payload.subarray(i, j + size) });
+    i = j + size;
+  }
+  return obus;
+}
+
+/** AU 是否关键帧 */
+export function isKeyframeAu(au, codec = 'h264') {
+  if (codec === 'av1') return splitObus(au).some((o) => o.type === 1);
+  if (codec === 'hevc') {
+    return splitNals(au, 'hevc').some((n) => n.type === 19 || n.type === 20);
+  }
+  return splitNals(au, 'h264').some((n) => n.type === 5);
+}
+
+/** h264 SPS NAL → codec 字符串（avc1.PPCCLL） */
 export function codecStringFromSps(spsData) {
-  // spsData[0] = NAL 头；[1]=profile_idc [2]=constraint [3]=level_idc
   if (spsData.length < 4) return 'avc1.640028';
   const hex = (b) => b.toString(16).padStart(2, '0').toUpperCase();
   return 'avc1.' + hex(spsData[1]) + hex(spsData[2]) + hex(spsData[3]);
 }
 
-/** AU 是否含 IDR（关键帧） */
-export function isKeyframeAu(au) {
-  return splitNals(au).some((nal) => nal.type === 5);
-}
-
-/** Annex B AU → AVCC（4 字节大端长度前缀）+ 可选提取 SPS/PPS */
-export function annexbToAvcc(au) {
-  const nals = splitNals(au);
+/** Annex B AU → AVCC（4B 大端长度前缀）+ 参数集提取（h264/hevc） */
+export function annexbToAvcc(au, codec = 'h264') {
+  const nals = splitNals(au, codec);
   const parts = [];
+  let vps = null;
   let sps = null;
   let pps = null;
+  const paramTypes = codec === 'hevc' ? { 32: 'vps', 33: 'sps', 34: 'pps' }
+    : { 7: 'sps', 8: 'pps' };
+  const skipTypes = codec === 'hevc' ? new Set([39, 40]) : new Set([6]);
   for (const nal of nals) {
-    if (nal.type === 7) { sps = nal.data; continue; }
-    if (nal.type === 8) { pps = nal.data; continue; }
-    if (nal.type === 6) continue; // SEI 丢弃
+    const role = paramTypes[nal.type];
+    if (role === 'vps') { vps = nal.data; continue; }
+    if (role === 'sps') { sps = nal.data; continue; }
+    if (role === 'pps') { pps = nal.data; continue; }
+    if (skipTypes.has(nal.type)) continue; // SEI 丢弃
     const len = new DataView(new ArrayBuffer(4));
     len.setUint32(0, nal.data.length);
     parts.push(new Uint8Array(len.buffer), nal.data);
@@ -68,15 +111,14 @@ export function annexbToAvcc(au) {
   const out = new Uint8Array(total);
   let off = 0;
   for (const p of parts) { out.set(p, off); off += p.length; }
-  return { avcc: out, sps, pps };
+  return { avcc: out, vps, sps, pps };
 }
 
-/** SPS/PPS → avcC description（MSE 路径的 decoderConfig.description） */
+/** h264：SPS/PPS → avcC description */
 export function buildAvccDescription(sps, pps) {
   const body = [
-    0x01, sps[1], sps[2], sps[3], // version + profile/compat/level
-    0xFF, // 6bit reserved + lengthSizeMinusOne=3
-    0xE1, // 3bit reserved + numSPS=1
+    0x01, sps[1], sps[2], sps[3],
+    0xFF, 0xE1,
     (sps.length >> 8) & 0xff, sps.length & 0xff,
   ];
   for (const b of sps) body.push(b);
@@ -85,16 +127,85 @@ export function buildAvccDescription(sps, pps) {
   return new Uint8Array(body);
 }
 
+/** hevc：VPS/SPS/PPS → 最小 hvcC description（profile/level 从 SPS 解析，
+ *  假定 max_sub_layers_minus1=0——VideoToolbox/libx265 默认如此） */
+export function buildHvccDescription(vps, sps, pps) {
+  const s = sps; // 含 2 字节 NAL 头
+  const body = [
+    0x01, // configurationVersion
+    s[3] & 0x1f, // profile_space/tier/profile_idc（取 SPS PTL 首字节）
+    s[4], s[5], s[6], s[7], // profile_compatibility_flags
+    s[8], s[9], s[10], s[11], s[12], s[13], // constraint_indicator_flags
+    s[14] || 93, // level_idc
+    0xF0, 0x00, // min_spatial_segmentation_idc
+    0xFC, // parallelismType=0
+    0xFD, // chromaFormat=1 (4:2:0)
+    0xF8, 0xF8, // bitDepth 8/8
+    0x00, 0x00, // avgFrameRate
+    0x07, // constantFrameRate=0 numTemporalLayers=1 temporalIdNested=1 len-1=3
+    0x03, // numArrays: vps/sps/pps
+  ];
+  const pushArray = (type, nal) => {
+    body.push(0x80 | type, 0x00, 0x01, (nal.length >> 8) & 0xff, nal.length & 0xff);
+    for (const b of nal) body.push(b);
+  };
+  pushArray(32, vps);
+  pushArray(33, sps);
+  pushArray(34, pps);
+  return new Uint8Array(body);
+}
+
+/** av1：av1C description（profile0/level 由参数指定）+ 序列头 OBU */
+export function buildAv1cDescription(seqHeaderObu, level = 8) {
+  const body = [0x80 | (0 << 5) | level, 0x0C, 0x00, 0x00];
+  if (seqHeaderObu) for (const b of seqHeaderObu) body.push(b);
+  return new Uint8Array(body);
+}
+
+/** 各格式 codec 字符串候选（首个被 isConfigSupported 接受的胜出） */
+const CODEC_CANDIDATES = {
+  h264: ['avc1.640028'],
+  hevc: ['hev1.1.6.L93.B0', 'hev1.1.6.L120.90', 'hvc1.1.6.L93.B0', 'hvc1.1.6.L120.90'],
+  av1: ['av01.0.08M.08', 'av01.0.04M.08'],
+};
+
+/** 探测解码支持矩阵（#25 用户要求④：收侧硬解/软解检查）。
+ * 返回 [{codec, engine: 'webcodecs'|'mse', pref, supported, used}] */
+export async function probeDecodeSupport() {
+  const rows = [];
+  for (const [name, candidates] of Object.entries(CODEC_CANDIDATES)) {
+    for (const [pref, label] of [['no-preference', 'auto'], ['prefer-hardware', 'hardware'], ['prefer-software', 'software']]) {
+      let supported = false;
+      let used = null;
+      if (typeof VideoDecoder !== 'undefined') {
+        for (const c of candidates) {
+          try {
+            const r = await VideoDecoder.isConfigSupported({ codec: c, hardwareAcceleration: pref });
+            if (r.supported) { supported = true; used = c; break; }
+          } catch (_) { /* 探测失败按不支持计 */ }
+        }
+      }
+      rows.push({ codec: name, engine: 'webcodecs', pref: label, supported, used });
+    }
+    let mseOk = false;
+    let mseCodec = null;
+    if (typeof MediaSource !== 'undefined') {
+      for (const c of candidates) {
+        if (MediaSource.isTypeSupported(`video/mp4; codecs="${c}"`)) { mseOk = true; mseCodec = c; break; }
+      }
+    }
+    rows.push({ codec: name, engine: 'mse', pref: 'auto', supported: mseOk, used: mseCodec });
+  }
+  return rows;
+}
+
 const DECODE_PREF_MAP = {
   auto: 'no-preference',
   hardware: 'prefer-hardware',
   software: 'prefer-software',
 };
 
-/**
- * 视频流视图。host 内放 canvas（WebCodecs 路径）与 video（MSE 路径），
- * 按生效引擎切换可见性。
- */
+/** 视频流视图。host 内放 canvas（WebCodecs）与 video（MSE）。 */
 export class VideoView {
   constructor(host, client, { readOnly = false, decodePref = 'auto' } = {}) {
     this.host = host;
@@ -102,18 +213,28 @@ export class VideoView {
     this.readOnly = readOnly;
     this.decodePref = decodePref;
     this.playbackPath = 'auto'; // auto | webcodecs | mse
+    this.codec = 'h264'; // videoMeta 下发（#25）
+    this.sizeMode = 'fit';
     this.viewportWidth = 0;
     this.viewportHeight = 0;
     this.framesDecoded = 0;
     this.lastError = null;
     this._decoder = null;
     this._decoderConfigured = false;
+    this._configuring = null; // hevc/av1 异步选 codec 字符串期间的 Promise
+    this._codecString = null; // 探测选定的 codec 字符串
     this._hasKey = false;
     this._pts = 0;
-    this._mse = null; // {mediaSource, sourceBuffer, muxer, queue, video}
-    this._engine = null; // 'webcodecs' | 'mse'
-    this.ausReceived = 0; // 诊断：累计收到的 AU 数
-    this.mseKeyWaits = 0; // 诊断：MSE 等关键帧期间丢弃的非关键 AU 数
+    this._mse = null; // {mediaSource, sourceBuffer, muxer, queue, description}
+    this._engine = null;
+    this.ausReceived = 0;
+    this.keyAusReceived = 0;
+    this.mseKeyWaits = 0;
+    // 参数集缓存（VT 管道模式只在首 IDR 带参数集，后续裸 IDR 复用缓存）
+    this._vps = null;
+    this._sps = null;
+    this._pps = null;
+    this._seqHeader = null; // av1 序列头 OBU
 
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'video-canvas';
@@ -175,6 +296,11 @@ export class VideoView {
   handleVideoMessage(type, payload) {
     if (type === 'videoMeta') {
       const meta = typeof payload === 'string' ? JSON.parse(payload) : payload;
+      const newCodec = meta.codec || 'h264';
+      if (newCodec !== this.codec) {
+        this.codec = newCodec;
+        this._teardownEngines(); // 格式变了必须重建解码器
+      }
       this.viewportWidth = meta.viewportWidth || 0;
       this.viewportHeight = meta.viewportHeight || 0;
       this.canvas.width = this.viewportWidth;
@@ -188,12 +314,23 @@ export class VideoView {
     const au = payload instanceof Uint8Array
       ? payload
       : Uint8Array.from(atob(payload), (c) => c.charCodeAt(0));
-    if (isKeyframeAu(au)) this.keyAusReceived = (this.keyAusReceived || 0) + 1;
-    // SPS/PPS 全局缓存：VideoToolbox 管道模式下只在首 IDR 带参数集，
-    // 后续 IDR 是裸的——MSE 中途接管必须复用缓存的参数集（#22 踩坑）。
-    for (const nal of splitNals(au)) {
-      if (nal.type === 7) this._sps = nal.data;
-      else if (nal.type === 8) this._pps = nal.data;
+    if (isKeyframeAu(au, this.codec)) this.keyAusReceived++;
+    // 参数集缓存（#22 VT 裸 IDR 踩坑；av1 缓存序列头 OBU）
+    if (this.codec === 'av1') {
+      for (const obu of splitObus(au)) {
+        if (obu.type === 1) this._seqHeader = obu.data;
+      }
+    } else if (this.codec === 'hevc') {
+      for (const nal of splitNals(au, 'hevc')) {
+        if (nal.type === 32) this._vps = nal.data;
+        else if (nal.type === 33) this._sps = nal.data;
+        else if (nal.type === 34) this._pps = nal.data;
+      }
+    } else {
+      for (const nal of splitNals(au, 'h264')) {
+        if (nal.type === 7) this._sps = nal.data;
+        else if (nal.type === 8) this._pps = nal.data;
+      }
     }
     this._feed(au);
   }
@@ -210,106 +347,158 @@ export class VideoView {
     else this._feedMse(au);
   }
 
+  /** 选 codec 字符串：h264 从 SPS 构造；hevc/av1 探测候选（异步） */
+  async _resolveCodecString() {
+    if (this._codecString) return this._codecString;
+    if (this.codec === 'h264') {
+      this._codecString = this._sps
+        ? codecStringFromSps(this._sps)
+        : CODEC_CANDIDATES.h264[0];
+      return this._codecString;
+    }
+    for (const c of CODEC_CANDIDATES[this.codec] || []) {
+      try {
+        const r = await VideoDecoder.isConfigSupported({
+          codec: c,
+          hardwareAcceleration: DECODE_PREF_MAP[this.decodePref] || 'no-preference',
+        });
+        if (r.supported) { this._codecString = c; return c; }
+      } catch (_) { /* 继续下一个候选 */ }
+    }
+    // 探测全败：退回候选首位（让 configure 报错浮出 lastError）
+    this._codecString = (CODEC_CANDIDATES[this.codec] || CODEC_CANDIDATES.h264)[0];
+    return this._codecString;
+  }
+
   // ---- WebCodecs 路径 ----
 
   _feedWebCodecs(au) {
     this._engine = 'webcodecs';
-    const key = isKeyframeAu(au);
-    if (!this._decoderConfigured) {
-      if (!key) return; // 等首个关键帧取 SPS
-      const sps = splitNals(au).find((nal) => nal.type === 7);
-      const codec = sps ? codecStringFromSps(sps.data) : 'avc1.640028';
-      this._teardownEngines();
-      this._engine = 'webcodecs';
-      this._decoder = new VideoDecoder({
-        output: (frame) => {
-          const ctx = this.canvas.getContext('2d');
-          ctx.drawImage(frame, 0, 0);
-          frame.close();
-          this.framesDecoded++;
-          this.host.classList.add('has-frame');
-          this.canvas.classList.remove('hidden');
-          this.video.classList.add('hidden');
-        },
-        error: (e) => { this.lastError = String(e); },
-      });
-      this._decoder.configure({
-        codec,
-        hardwareAcceleration: DECODE_PREF_MAP[this.decodePref] || 'no-preference',
-        optimizeForLatency: true,
-        // 无 description → Annex B 格式
-      });
-      this._decoderConfigured = true;
-      this._hasKey = false;
+    const key = isKeyframeAu(au, this.codec);
+    if (this._configuring) {
+      // hevc/av1 的 codec 字符串异步探测期间：挂起后续帧
+      this._configuring.then(() => this._feedWebCodecs(au));
+      return;
     }
-    if (!this._hasKey && !key) return; // 关键帧前丢 delta
+    if (!this._decoderConfigured) {
+      if (!key) return; // 等首个关键帧
+      this._configuring = this._resolveCodecString().then((codecStr) => {
+        this._configuring = null;
+        this._teardownEngines();
+        this._engine = 'webcodecs';
+        this._decoder = new VideoDecoder({
+          output: (frame) => {
+            const ctx = this.canvas.getContext('2d');
+            ctx.drawImage(frame, 0, 0);
+            frame.close();
+            this.framesDecoded++;
+            this.host.classList.add('has-frame');
+            this.canvas.classList.remove('hidden');
+            this.video.classList.add('hidden');
+          },
+          error: (e) => { this.lastError = String(e); },
+        });
+        this._decoder.configure({
+          codec: codecStr,
+          hardwareAcceleration: DECODE_PREF_MAP[this.decodePref] || 'no-preference',
+          optimizeForLatency: true,
+          // 无 description → h264/hevc Annex B；av1 低开销 OBU
+        });
+        this._decoderConfigured = true;
+        this._hasKey = false;
+        this._feedWebCodecs(au); // 补喂触发帧
+      }).catch((e) => {
+        this._configuring = null;
+        this.lastError = 'configure: ' + e;
+      });
+      return;
+    }
+    if (!this._hasKey && !key) return;
     if (key) this._hasKey = true;
     this._pts += 33333;
-    this._decoder.decode(new EncodedVideoChunk({
-      type: key ? 'key' : 'delta',
-      timestamp: this._pts,
-      data: au,
-    }));
+    try {
+      this._decoder.decode(new EncodedVideoChunk({
+        type: key ? 'key' : 'delta',
+        timestamp: this._pts,
+        data: au,
+      }));
+    } catch (e) {
+      this.lastError = 'decode: ' + e;
+    }
   }
 
   // ---- MSE 路径 ----
 
+  _mseMime() {
+    const c = this._codecString || CODEC_CANDIDATES[this.codec][0];
+    return `video/mp4; codecs="${c}"`;
+  }
+
+  _mseDescription() {
+    if (this.codec === 'hevc') {
+      if (!this._vps || !this._sps || !this._pps) return null;
+      return buildHvccDescription(this._vps, this._sps, this._pps);
+    }
+    if (this.codec === 'av1') {
+      return buildAv1cDescription(this._seqHeader, 8);
+    }
+    if (!this._sps || !this._pps) return null;
+    return buildAvccDescription(this._sps, this._pps);
+  }
+
+  _msePayload(au) {
+    if (this.codec === 'av1') return au; // 低开销 OBU 直接喂
+    return annexbToAvcc(au, this.codec).avcc;
+  }
+
   _feedMse(au) {
     this._engine = 'mse';
-    const key = isKeyframeAu(au);
+    const key = isKeyframeAu(au, this.codec);
     if (!this._mse) {
       if (!key) { this.mseKeyWaits++; return; }
-      const extracted = annexbToAvcc(au);
-      const sps = extracted.sps || this._sps;
-      const pps = extracted.pps || this._pps;
-      if (!sps || !pps) { this.mseMissingSps = (this.mseMissingSps || 0) + 1; return; }
+      const description = this._mseDescription();
+      if (!description) { this.mseMissingSps = (this.mseMissingSps || 0) + 1; return; }
       const mediaSource = new MediaSource();
       this.video.src = URL.createObjectURL(mediaSource);
-      this._mse = {
-        mediaSource,
-        sourceBuffer: null,
-        muxer: null,
-        queue: [],
-        description: buildAvccDescription(sps, pps),
-      };
+      this._mse = { mediaSource, sourceBuffer: null, muxer: null, queue: [], description };
       mediaSource.addEventListener('sourceopen', () => {
-       try {
-        const mime = 'video/mp4; codecs="avc1.640028"';
-        const sb = mediaSource.addSourceBuffer(mime);
-        sb.mode = 'segments';
-        sb.addEventListener('updateend', () => {
-          const next = this._mse.queue.shift();
-          if (next) sb.appendBuffer(next);
-        });
-        this._mse.sourceBuffer = sb;
-        this._mse.muxer = new Muxer({
-          target: new StreamTarget({
-            onData: (data, position) => {  // position 对 MSE 顺序 append 无意义（fragmented 流单调递增）
-              try {
-                const copy = data.slice(0);
-                if (sb.updating) this._mse.queue.push(copy);
-                else sb.appendBuffer(copy);
-                this.mseBytesAppended = (this.mseBytesAppended || 0) + copy.byteLength;
-              } catch (err) { this.lastError = 'append: ' + err; }
+        try {
+          const sb = mediaSource.addSourceBuffer(this._mseMime());
+          sb.mode = 'segments';
+          sb.addEventListener('updateend', () => {
+            const next = this._mse.queue.shift();
+            if (next) sb.appendBuffer(next);
+          });
+          this._mse.sourceBuffer = sb;
+          this._mse.muxer = new Muxer({
+            target: new StreamTarget({
+              onData: (data, position) => { // position 对 MSE 顺序 append 无意义
+                try {
+                  const copy = data.slice(0);
+                  if (sb.updating) this._mse.queue.push(copy);
+                  else sb.appendBuffer(copy);
+                  this.mseBytesAppended = (this.mseBytesAppended || 0) + copy.byteLength;
+                } catch (err) { this.lastError = 'append: ' + err; }
+              },
+              chunked: true,
+              // 默认 16MB 攒满才发 onData——直播场景必须小 chunk（#22 踩坑）
+              chunkSize: 16384,
+            }),
+            video: {
+              codec: this.codec === 'av1' ? 'av1' : this.codec === 'hevc' ? 'hevc' : 'avc',
+              width: this.viewportWidth || 1280,
+              height: this.viewportHeight || 720,
             },
-            chunked: true,
-            // 默认 16MB 攒满才发 onData——直播场景必须小 chunk（#22 踩坑）
-            chunkSize: 16384,
-          }),
-          video: {
-            codec: 'avc',
-            width: this.viewportWidth || 1280,
-            height: this.viewportHeight || 720,
-          },
-          fastStart: 'fragmented',
-          firstTimestampBehavior: 'offset',
-        });
-        this.canvas.classList.add('hidden');
-        this.video.classList.remove('hidden');
-        this.host.classList.add('has-frame');
-        // 补喂首帧
-        this._feedMseAu(au, true);
-       } catch (err) { this.lastError = 'sourceopen: ' + (err && err.stack || err); }
+            fastStart: 'fragmented',
+            firstTimestampBehavior: 'offset',
+          });
+          this.canvas.classList.add('hidden');
+          this.video.classList.remove('hidden');
+          this.host.classList.add('has-frame');
+          this._feedMseAu(au, true); // 补喂首帧
+        } catch (err) {
+          this.lastError = 'sourceopen: ' + (err && err.stack || err);
+        }
       });
       return;
     }
@@ -318,26 +507,31 @@ export class VideoView {
   }
 
   _feedMseAu(au, key) {
-    let avcc;
+    let payload;
     try {
-      ({ avcc } = annexbToAvcc(au));
-    } catch (err) { this.lastError = 'avcc: ' + err; return; }
-    if (!avcc.length) { this.lastError = 'avcc empty'; return; }
-    try {
+      payload = this._msePayload(au);
+    } catch (err) { this.lastError = 'payload: ' + err; return; }
+    if (!payload || !payload.length) { this.lastError = 'payload empty'; return; }
     this._pts += 33333;
-    this._mse.muxer.addVideoChunkRaw(
-      avcc,
-      key ? 'key' : 'delta',
-      this._pts,
-      33333,
-      key ? { decoderConfig: { codec: 'avc1.640028', description: this._mse.description } } : undefined,
-    );
+    try {
+      this._mse.muxer.addVideoChunkRaw(
+        payload,
+        key ? 'key' : 'delta',
+        this._pts,
+        33333,
+        key ? {
+          decoderConfig: {
+            codec: this._codecString || CODEC_CANDIDATES[this.codec][0],
+            description: this._mse.description,
+          },
+        } : undefined,
+      );
       // fastStart=fragmented 时片段在新关键帧到达时自动冲刷，无需手动 finalize
     } catch (err) { this.lastError = 'muxer: ' + err; return; }
     this.framesDecoded++;
   }
 
-  // ---- 输入（与画面流同构：坐标按 canvas 显示尺寸 → 源视口换算） ----
+  // ---- 输入（坐标按显示元素尺寸 → 源视口换算） ----
 
   _bindInput() {
     const target = this.host;
@@ -384,6 +578,7 @@ export class VideoView {
       this._decoder = null;
     }
     this._decoderConfigured = false;
+    this._codecString = null;
     this._hasKey = false;
     if (this._mse) {
       try { this._mse.mediaSource.endOfStream(); } catch (_) { /* 忽略 */ }

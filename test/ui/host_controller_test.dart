@@ -116,7 +116,7 @@ void main() {
   });
 
   test('中转未运行时启动会话：lastError 记录且不崩溃', () async {
-    await controller.startSession(SessionKind.screencast);
+    await controller.startSession(SessionKind.dom);
     expect(controller.sessionKind, SessionKind.none);
     expect(controller.lastError, contains('中转未运行'));
   });
@@ -133,19 +133,18 @@ void main() {
     expect(preview, contains('#t='));
   });
 
-  test('画面流会话：启动/互斥/停止（假 CDP + 真中转）', () async {
+  test('DOM 会话：启动/互斥/停止（假 CDP + 真中转）', () async {
     await controller.startRelay();
-    await controller.startSession(SessionKind.screencast);
+    await controller.startSession(SessionKind.dom);
     expect(controller.lastError, isNull);
-    expect(controller.sessionKind, SessionKind.screencast);
+    expect(controller.sessionKind, SessionKind.dom);
     expect(controller.cdpImplementationName, 'fake-cdp');
-    // 启动序列：Page.enable → startScreencast（meta 由 evaluate 提供）
+    // 启动序列：exposeBinding → Page.enable → 注入脚本
     expect(fakeClient.lastPage!.sentMethods, contains('Page.enable'));
-    expect(fakeClient.lastPage!.sentMethods, contains('Page.startScreencast'));
 
     // 互斥：会话运行中再启另一个 → lastError 记录，会话不切换
     await controller.startSession(SessionKind.dom);
-    expect(controller.sessionKind, SessionKind.screencast);
+    expect(controller.sessionKind, SessionKind.dom);
     expect(controller.lastError, contains('互斥'));
 
     await controller.stopSession();
@@ -166,7 +165,7 @@ void main() {
 
   test('会话枚举 shell 清单并接管主窗口（#16）', () async {
     await controller.startRelay();
-    await controller.startSession(SessionKind.screencast);
+    await controller.startSession(SessionKind.dom);
     expect(controller.lastError, isNull);
     expect(controller.shellTargets.map((t) => t.id), ['shell-1', 'shell-2']);
     // 默认接管主窗口（无 initialRoute 的 shell）
@@ -176,13 +175,13 @@ void main() {
 
   test('switchTarget：停旧会话并以相同模式接管新 shell（#16）', () async {
     await controller.startRelay();
-    await controller.startSession(SessionKind.screencast);
+    await controller.startSession(SessionKind.dom);
     expect(controller.activeShellTargetId, 'shell-1');
 
     await controller.switchTarget('shell-2');
     expect(controller.lastError, isNull);
-    // 会话保持画面流模式，目标换成 shell-2
-    expect(controller.sessionKind, SessionKind.screencast);
+    // 会话保持 DOM 模式，目标换成 shell-2
+    expect(controller.sessionKind, SessionKind.dom);
     expect(controller.activeShellTargetId, 'shell-2');
     expect(fakeClient.lastPage!.target.id, 'shell-2');
 

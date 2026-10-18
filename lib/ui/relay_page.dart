@@ -5,7 +5,6 @@ library;
 import 'package:flutter/material.dart';
 
 import '../dom/dom.dart';
-import '../screencast/screencast.dart';
 import '../video/video.dart';
 import 'home_shell.dart';
 import 'host_controller.dart';
@@ -36,6 +35,7 @@ class RelayPage extends StatelessWidget {
             if (running) ...[
               _AccessCard(controller: controller),
               _SessionCard(controller: controller),
+              _VideoCapsCard(controller: controller),
               _ClientsCard(controller: controller),
             ] else
               SectionCard(
@@ -203,18 +203,6 @@ class _SessionCard extends StatelessWidget {
             FieldRow(label: '下发信封', value: '${status.envelopesSent}'),
             FieldRow(label: '输入事件', value: '${status.inputsDispatched}'),
             FieldRow(label: '最近错误', value: status.lastError ?? '无'),
-          ] else if (status is ScreencastSessionStatus) ...[
-            FieldRow(label: '已发帧', value: '${status.framesSent}'),
-            FieldRow(label: '输入事件', value: '${status.inputsDispatched}'),
-            FieldRow(
-              label: '最近一帧',
-              value: status.lastFrameAt == null
-                  ? '—'
-                  : DateTime.fromMillisecondsSinceEpoch(status.lastFrameAt!)
-                        .toIso8601String(),
-              mono: true,
-            ),
-            FieldRow(label: '最近错误', value: status.lastError ?? '无'),
           ] else if (status is VideoSessionStatus) ...[
             FieldRow(label: '编码器', value: status.encoder ?? '—', mono: true),
             FieldRow(label: '已编码帧', value: '${status.framesEncoded}'),
@@ -232,6 +220,59 @@ class _SessionCard extends StatelessWidget {
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 12),
+          // 视频流编码参数（#25）：启动视频会话时生效
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              _VideoSettingDropdown<VideoCodecKind>(
+                label: '编码格式',
+                value: controller.videoCodec,
+                items: const [
+                  (VideoCodecKind.h264, 'H.264'),
+                  (VideoCodecKind.hevc, 'H.265'),
+                  (VideoCodecKind.av1, 'AV1'),
+                ],
+                onChanged: (v) => controller.setVideoCodec(v),
+              ),
+              _VideoSettingDropdown<VideoEncoderKind>(
+                label: '编码器',
+                value: controller.videoEncoderKind,
+                items: const [
+                  (VideoEncoderKind.auto, '自动（硬编优先）'),
+                  (VideoEncoderKind.hardware, '强制硬编'),
+                  (VideoEncoderKind.software, '强制软编'),
+                ],
+                onChanged: (v) => controller.setVideoEncoderKind(v),
+              ),
+              _VideoSettingDropdown<int?>(
+                label: '分辨率上限',
+                value: controller.videoMaxWidth,
+                items: const [
+                  (null, '原始'),
+                  (1600, '1600'),
+                  (1280, '1280'),
+                  (960, '960'),
+                  (640, '640'),
+                ],
+                onChanged: (v) => controller.setVideoMaxWidth(v),
+              ),
+              _VideoSettingDropdown<int?>(
+                label: '码率',
+                value: controller.videoBitrateKbps,
+                items: const [
+                  (null, '自动'),
+                  (4000, '4 Mbps'),
+                  (2000, '2 Mbps'),
+                  (1000, '1 Mbps'),
+                  (500, '500 kbps'),
+                ],
+                onChanged: (v) => controller.setVideoBitrateKbps(v),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
           Wrap(
             spacing: 8,
             children: [
@@ -241,13 +282,6 @@ class _SessionCard extends StatelessWidget {
                     : () => controller.startSession(SessionKind.dom),
                 icon: const Icon(Icons.web_outlined, size: 16),
                 label: const Text('DOM 重绘模式'),
-              ),
-              FilledButton.tonalIcon(
-                onPressed: busy || kind == SessionKind.screencast
-                    ? null
-                    : () => controller.startSession(SessionKind.screencast),
-                icon: const Icon(Icons.screenshot_monitor_outlined, size: 16),
-                label: const Text('画面流模式'),
               ),
               FilledButton.tonalIcon(
                 onPressed: busy || kind == SessionKind.video
@@ -330,6 +364,118 @@ class _SecurityNoteCard extends StatelessWidget {
         '默认仅绑 127.0.0.1；跨机访问必须走 SSH 隧道 / Tailscale，'
         '不要裸暴露端口。${allowLanAccess ? '当前已开启局域网访问，请确认网络可信。' : ''}',
         style: Theme.of(context).textTheme.bodySmall,
+      ),
+    );
+  }
+}
+
+/// 视频设置下拉（#25）：label + 紧凑 DropdownButton。
+class _VideoSettingDropdown<T> extends StatelessWidget {
+  const _VideoSettingDropdown({
+    required this.label,
+    required this.value,
+    required this.items,
+    required this.onChanged,
+  });
+
+  final String label;
+  final T value;
+  final List<(T, String)> items;
+  final ValueChanged<T> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
+        const SizedBox(width: 6),
+        DropdownButton<T>(
+          value: value,
+          isDense: true,
+          underline: const SizedBox.shrink(),
+          items: [
+            for (final (v, text) in items)
+              DropdownMenuItem<T>(value: v, child: Text(text)),
+          ],
+          onChanged: (v) => onChanged(v as T),
+        ),
+      ],
+    );
+  }
+}
+
+/// 编码能力矩阵（#25）：ffmpeg 各编码器可用性（编译级探测）。
+class _VideoCapsCard extends StatelessWidget {
+  const _VideoCapsCard({required this.controller});
+
+  final HostController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final caps = controller.encoderCapabilities;
+    final ffmpegPath = controller.ffmpegPath;
+    return SectionCard(
+      title: '编码能力（宿主）',
+      trailing: StatusChip(
+        label: ffmpegPath != null ? 'ffmpeg 就绪' : '未找到 ffmpeg',
+        tone: ffmpegPath != null ? StatusTone.success : StatusTone.warning,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (ffmpegPath == null)
+            Text(
+              '未找到 ffmpeg，视频流模式不可用。安装：brew install ffmpeg',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: statusToneColor(context, StatusTone.warning),
+              ),
+            )
+          else ...[
+            for (final cap in caps)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 64,
+                      child: Text(
+                        cap.codec.toUpperCase(),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                    SizedBox(
+                      width: 72,
+                      child: Text(
+                        cap.hardware ? '硬编' : '软编',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                    Expanded(child: MonoText(cap.name)),
+                    StatusChip(
+                      label: cap.available ? '可用' : '缺失',
+                      tone: cap.available
+                          ? StatusTone.success
+                          : StatusTone.error,
+                    ),
+                  ],
+                ),
+              ),
+            const SizedBox(height: 8),
+            Text(
+              '硬编实际可用性以会话启动时的运行时探测为准（失败自动回退软编）。',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: controller.busy
+                ? null
+                : controller.refreshVideoCapabilities,
+            icon: const Icon(Icons.refresh, size: 16),
+            label: const Text('重新探测'),
+          ),
+        ],
       ),
     );
   }

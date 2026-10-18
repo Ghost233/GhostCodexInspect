@@ -93,8 +93,7 @@ void main() {
       reason: '真机应枚举出多个 shell。${dump()}',
     );
     final originalId = controller.activeShellTargetId!;
-    final other = controller.shellTargets
-        .firstWhere((t) => t.id != originalId);
+    final other = controller.shellTargets.firstWhere((t) => t.id != originalId);
     await controller.switchTarget(other.id);
     await settle(8); // 停旧会话 + attach 新 shell + 重建 DOM 会话
     expect(controller.activeShellTargetId, other.id, reason: dump());

@@ -48,7 +48,7 @@ class _GhostCodexInspectAppState extends State<GhostCodexInspectApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'GhostCodexInspect',
+      title: 'Ghost Codex Inspect',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(Brightness.light),
       darkTheme: buildAppTheme(Brightness.dark),

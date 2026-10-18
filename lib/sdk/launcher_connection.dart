@@ -16,7 +16,7 @@ class LauncherConnection {
   LauncherConnection();
 
   static const String projectId = 'com.ghost233.ghostcodexinspect';
-  static const String projectName = 'GhostCodexInspect';
+  static const String projectName = 'Ghost Codex Inspect';
   static const String relayServiceId = 'relay';
 
   MacLauncherSdk? _sdk;

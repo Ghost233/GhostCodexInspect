@@ -1,4 +1,4 @@
-# GhostCodexInspect
+# Ghost Codex Inspect
 
 ## Agent skills
 

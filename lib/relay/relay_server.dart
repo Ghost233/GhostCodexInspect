@@ -87,7 +87,7 @@ class RelayServer {
   static String resolveWebRoot() {
     final env = Platform.environment['GCI_WEB_ROOT'];
     if (env != null && Directory(env).existsSync()) return env;
-    // …/GhostCodexInspect.app/Contents/MacOS/GhostCodexInspect → Contents
+    // …/Ghost Codex Inspect.app/Contents/MacOS/Ghost Codex Inspect → Contents
     final exe = File(Platform.resolvedExecutable).resolveSymbolicLinksSync();
     final contents = File(exe).parent.parent.path;
     for (final layout in const [

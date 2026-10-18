@@ -1,6 +1,6 @@
-# GhostCodexInspect
+# Ghost Codex Inspect
 
-GhostCodexInspect 是对 Electron 桌面应用做注入、检查与远程接管的工具。一期目标应用是 ChatGPT.app（Codex 桌面端已并入其中，bundle id `com.openai.codex`，进程用户数据目录为 `~/Library/Application Support/Codex`）。本文件记录该上下文的领域词汇。
+Ghost Codex Inspect 是对 Electron 桌面应用做注入、检查与远程接管的工具。一期目标应用是 ChatGPT.app（Codex 桌面端已并入其中，bundle id `com.openai.codex`，进程用户数据目录为 `~/Library/Application Support/Codex`）。本文件记录该上下文的领域词汇。
 
 ## 语言
 

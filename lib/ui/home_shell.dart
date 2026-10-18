@@ -56,7 +56,7 @@ class _HomeShellState extends State<HomeShell> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
                   child: Text(
-                    'GhostCodexInspect',
+                    'Ghost Codex Inspect',
                     style: Theme.of(context).textTheme.titleLarge,
                     overflow: TextOverflow.ellipsis,
                   ),

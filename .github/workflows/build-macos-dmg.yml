@@ -22,7 +22,7 @@ jobs:
     permissions:
       contents: read
     env:
-      APP_NAME: GhostCodexInspect
+      APP_NAME: Ghost Codex Inspect
       FLUTTER_VERSION: "3.47.7"
     steps:
       - name: Checkout
@@ -49,12 +49,12 @@ jobs:
           set -euo pipefail
           app="build/macos/Build/Products/Release/${APP_NAME}.app"
           test -d "$app" || { echo "::error::Build product not found: $app"; exit 1; }
-          dmg="GhostCodexInspect-${{ inputs.version }}.dmg"
+          dmg="Ghost-Codex-Inspect-${{ inputs.version }}.dmg"
           mkdir -p dist staging
           cp -R "$app" staging/
           ln -s /Applications staging/Applications
           hdiutil create \
-            -volname "GhostCodexInspect" \
+            -volname "Ghost Codex Inspect" \
             -srcfolder staging \
             -ov -format UDZO \
             "dist/${dmg}"

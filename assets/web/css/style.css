@@ -317,6 +317,14 @@ body {
   font-size: 12px;
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
+  /* 数值位数变化不引起顶栏抖动：数字位固定宽度右对齐 */
+  white-space: nowrap;
+}
+.freshness-num {
+  display: inline-block;
+  min-width: 7ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .freshness.stale {
   color: var(--text-warn);

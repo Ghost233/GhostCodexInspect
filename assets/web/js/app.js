@@ -141,7 +141,8 @@ function updateFreshness() {
   }
   const ms = Date.now() - last;
   el.classList.remove('hidden');
-  el.textContent = `距上次刷新 ${ms}ms`;
+  el.innerHTML =
+      '距上次刷新 <span class="freshness-num">' + ms + '</span>ms';
   el.classList.toggle('stale', ms > FRESH_STALE_MS);
 }
 

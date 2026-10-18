@@ -32,9 +32,9 @@ class RelayPage extends StatelessWidget {
             if (controller.lastError != null)
               ErrorBar(message: controller.lastError!),
             _ServerCard(controller: controller, running: running),
+            _SessionCard(controller: controller, running: running),
             if (running) ...[
               _AccessCard(controller: controller),
-              _SessionCard(controller: controller),
               _VideoCapsCard(controller: controller),
               _ClientsCard(controller: controller),
             ] else
@@ -174,9 +174,10 @@ class _AccessCard extends StatelessWidget {
 }
 
 class _SessionCard extends StatelessWidget {
-  const _SessionCard({required this.controller});
+  const _SessionCard({required this.controller, required this.running});
 
   final HostController controller;
+  final bool running;
 
   @override
   Widget build(BuildContext context) {
@@ -221,6 +222,14 @@ class _SessionCard extends StatelessWidget {
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 12),
+          if (!running)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                '视频流参数（启动视频会话时生效）。启动会话需先启动中转。',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
           // 视频流编码参数（#25）：启动视频会话时生效
           Wrap(
             spacing: 12,
@@ -278,14 +287,14 @@ class _SessionCard extends StatelessWidget {
             spacing: 8,
             children: [
               FilledButton.tonalIcon(
-                onPressed: busy || kind == SessionKind.dom
+                onPressed: busy || !running || kind == SessionKind.dom
                     ? null
                     : () => controller.startSession(SessionKind.dom),
                 icon: const Icon(Icons.web_outlined, size: 16),
                 label: const Text('DOM 重绘模式'),
               ),
               FilledButton.tonalIcon(
-                onPressed: busy || kind == SessionKind.video
+                onPressed: busy || !running || kind == SessionKind.video
                     ? null
                     : () => controller.startSession(SessionKind.video),
                 icon: const Icon(Icons.videocam_outlined, size: 16),

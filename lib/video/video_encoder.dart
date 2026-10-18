@@ -245,7 +245,7 @@ class FfmpegVideoEncoder {
 /// Annex B 字节流 → 访问单元切分器（h264/hevc 共用；[isVcl] 按编码
 /// 格式判断 NAL 头是否为 VCL）。
 class _AnnexBSplitter {
-  _AnnexBSplitter(this._sink, {required bool Function(int header) this._isVcl});
+  _AnnexBSplitter(this._sink, {required this._isVcl});
 
   final StreamController<Uint8List> _sink;
   final bool Function(int header) _isVcl;

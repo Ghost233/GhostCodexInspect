@@ -17,6 +17,17 @@ void main() {
       expect(source, contains(kResyncFunctionName));
     });
 
+    test('整体包 IIFE：重复 evaluate 幂等安全（真机再注入事故修复）', () {
+      // 真机主 shell 页面被 rrweb 干跑探针 evaluate 过剥离 bundle 后，
+      // 顶层 let/const 永久留在全局词法环境；不包 IIFE 再注入即抛
+      // "Identifier 'testableAccessors' has already been declared"。
+      final source = buildCollectorSource('let testableAccessors = 1;\n'
+          'function record(){}\n'
+          'export { record };\n');
+      expect(source, startsWith(';(function () {'));
+      expect(source.trimRight(), endsWith('})();'));
+    });
+
     test('回归：字符串字面量内嵌的 sourceMappingURL 文本不被误剥', () {
       // @rrweb/record 2.1.1 的 canvas worker 源码字符串内含
       // `\n//# sourceMappingURL=...\n';`（\n 为两字符转义，物理上同一行）。

@@ -25,7 +25,11 @@ enum RelayChannel {
   dom,
   frame,
   input,
-  ctrl;
+  ctrl,
+
+  /// 视频流通道（#22）：videoMeta（文本 JSON）+ videoFrame（Annex B AU，
+  /// v2 客户端走二进制帧，v1 客户端 base64 文本帧）。
+  video;
 
   static RelayChannel? tryParse(String name) =>
       RelayChannel.values.asNameMap()[name];
@@ -67,7 +71,14 @@ enum RelayMessageType {
   switchTarget,
 
   /// data = {message}；宿主→远程端的文件对话框拦截提示（#20）。
-  fileChooserHint;
+  fileChooserHint,
+
+  /// data = {codec, encoder, width, height}；视频流元信息（#22）。
+  videoMeta,
+
+  /// data = Annex B 访问单元（v2 二进制帧为原始字节，v1 文本帧为
+  /// base64 字符串）（#22）。
+  videoFrame;
 
   static RelayMessageType? tryParse(String name) =>
       RelayMessageType.values.asNameMap()[name];

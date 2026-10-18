@@ -100,7 +100,7 @@ void main() {
 
     test('未知通道被拒绝', () {
       final json = jsonDecode(validJson()) as Map<String, Object?>
-        ..['ch'] = 'video';
+        ..['ch'] = 'hologram';
       expect(RelayEnvelope.tryDecode(jsonEncode(json)), isNull);
     });
 

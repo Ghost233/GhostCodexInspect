@@ -30,9 +30,29 @@
         aria-selected="false"
         data-mode="screencast"
       >画面流模式</button>
+      <button
+        id="mode-video"
+        class="mode-btn"
+        role="tab"
+        aria-selected="false"
+        data-mode="video"
+      >视频流模式</button>
     </nav>
 
     <div class="topbar-right">
+      <!-- #22：视频流播放路径与解码偏好（仅视频流模式生效） -->
+      <span id="video-settings" class="video-settings hidden">
+        <select id="playback-path" aria-label="播放路径">
+          <option value="auto">播放：自动</option>
+          <option value="webcodecs">播放：WebCodecs</option>
+          <option value="mse">播放：MSE</option>
+        </select>
+        <select id="decode-pref" aria-label="解码偏好">
+          <option value="auto">解码：自动</option>
+          <option value="hardware">解码：硬解</option>
+          <option value="software">解码：软解</option>
+        </select>
+      </span>
       <!-- #17：视图尺寸模式切换（自适应/原始尺寸）与刷新新鲜度指示 -->
       <button id="size-toggle" class="size-toggle" aria-pressed="false">自适应</button>
       <span id="freshness" class="freshness hidden" aria-live="off"></span>
@@ -70,6 +90,15 @@
           <p class="hint">画面流由宿主侧启动（宿主 UI 或验证工具），远程端被动渲染。</p>
         </div>
         <img id="screencast-img" class="screencast-img" alt="目标应用画面" draggable="false" />
+      </div>
+    </section>
+
+    <section id="stage-video" class="stage-pane hidden" aria-label="视频流模式">
+      <div id="video-host" class="video-host">
+        <div id="video-placeholder" class="stage-placeholder">
+          <p>等待视频流…</p>
+          <p class="hint">视频流由宿主侧启动（H.264 编码，需 ffmpeg），远程端被动播放。</p>
+        </div>
       </div>
     </section>
   </main>

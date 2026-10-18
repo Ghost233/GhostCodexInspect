@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../dom/dom.dart';
 import '../screencast/screencast.dart';
+import '../video/video.dart';
 import 'home_shell.dart';
 import 'host_controller.dart';
 import 'theme.dart';
@@ -214,6 +215,15 @@ class _SessionCard extends StatelessWidget {
               mono: true,
             ),
             FieldRow(label: '最近错误', value: status.lastError ?? '无'),
+          ] else if (status is VideoSessionStatus) ...[
+            FieldRow(label: '编码器', value: status.encoder ?? '—', mono: true),
+            FieldRow(label: '已编码帧', value: '${status.framesEncoded}'),
+            FieldRow(label: '已发 AU', value: '${status.ausSent}'),
+            FieldRow(
+              label: '视频字节',
+              value: '${(status.bytesSent / 1024).toStringAsFixed(1)} KB',
+            ),
+            FieldRow(label: '最近错误', value: status.lastError ?? '无'),
           ],
           const SizedBox(height: 8),
           Text(
@@ -238,6 +248,13 @@ class _SessionCard extends StatelessWidget {
                     : () => controller.startSession(SessionKind.screencast),
                 icon: const Icon(Icons.screenshot_monitor_outlined, size: 16),
                 label: const Text('画面流模式'),
+              ),
+              FilledButton.tonalIcon(
+                onPressed: busy || kind == SessionKind.video
+                    ? null
+                    : () => controller.startSession(SessionKind.video),
+                icon: const Icon(Icons.videocam_outlined, size: 16),
+                label: const Text('视频流模式'),
               ),
               OutlinedButton.icon(
                 onPressed: busy || kind == SessionKind.none

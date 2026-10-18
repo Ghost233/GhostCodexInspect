@@ -23,14 +23,14 @@ Future<(int, int)> sample(CdpPage page, String label) async {
   final sub = page.screencastFrames.listen((f) {
     frames++;
     bytes += f.data.length; // base64 长度 ≈ 导线成本（×3/4 为原始字节）
-    unawaited(
-      page.send('Page.screencastFrameAck', {'sessionId': f.sessionId}),
-    );
+    unawaited(page.send('Page.screencastFrameAck', {'sessionId': f.sessionId}));
   });
   await Future<void>.delayed(const Duration(seconds: phaseSeconds));
   await sub.cancel();
-  stdout.writeln('$label：$frames 帧 / $bytes B（base64）'
-      ' ≈ ${(bytes / phaseSeconds / 1024).toStringAsFixed(1)} KB/s');
+  stdout.writeln(
+    '$label：$frames 帧 / $bytes B（base64）'
+    ' ≈ ${(bytes / phaseSeconds / 1024).toStringAsFixed(1)} KB/s',
+  );
   return (frames, bytes);
 }
 
@@ -94,10 +94,14 @@ Future<void> main() async {
       ..writeln()
       ..writeln('| 场景 | 帧数（${phaseSeconds}s） | 字节 | 平均带宽 |')
       ..writeln('|------|------|------|------|')
-      ..writeln('| A 静置 | $idleFrames | $idleBytes B | '
-          '${(idleBytes / phaseSeconds / 1024).toStringAsFixed(1)} KB/s |')
-      ..writeln('| B 局部闪烁 | $blinkFrames | $blinkBytes B | '
-          '${(blinkBytes / phaseSeconds / 1024).toStringAsFixed(1)} KB/s |');
+      ..writeln(
+        '| A 静置 | $idleFrames | $idleBytes B | '
+        '${(idleBytes / phaseSeconds / 1024).toStringAsFixed(1)} KB/s |',
+      )
+      ..writeln(
+        '| B 局部闪烁 | $blinkFrames | $blinkBytes B | '
+        '${(blinkBytes / phaseSeconds / 1024).toStringAsFixed(1)} KB/s |',
+      );
     final ts = DateTime.now()
         .toLocal()
         .toString()

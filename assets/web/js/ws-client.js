@@ -88,12 +88,12 @@ const BINARY_HEADER_LENGTH = 15;
 /** 能力协商标记（auth caps / authOk caps 回显） */
 const BINARY_CAPABILITY = 'bin.v2';
 /** 通道 id ↔ 名（与 RelayChannel 枚举序一致，id = 序 + 1） */
-const CHANNEL_NAMES = ['dom', 'frame', 'input', 'ctrl'];
+const CHANNEL_NAMES = ['dom', 'frame', 'input', 'ctrl', 'video'];
 /** 类型 id ↔ 名（与 RelayMessageType 枚举序一致，id = 序 + 1） */
 const TYPE_NAMES = [
   'meta', 'full', 'inc', 'batch', 'resync', 'ping', 'pong',
   'auth', 'authOk', 'authErr', 'input', 'frame', 'shells', 'switchTarget',
-  'fileChooserHint',
+  'fileChooserHint', 'videoMeta', 'videoFrame',
 ];
 
 /**
@@ -203,6 +203,10 @@ export class RelayClient {
     };
 
     ws.onmessage = (ev) => {
+      // 诊断计数（#22 调试）：window.__wsDbg
+      const dbg = (window.__wsDbg = window.__wsDbg || { received: 0, lastErr: null, lastAt: 0 });
+      dbg.received++;
+      dbg.lastAt = Date.now();
       let envelope;
       if (ev.data instanceof ArrayBuffer) {
         // v2 二进制帧：还原成文本信封同形对象后走同一分发路径
@@ -212,7 +216,11 @@ export class RelayClient {
           console.warn('[ws-client] 二进制帧解析失败，丢弃本帧', err);
           return;
         }
-        this.onMessage(envelope);
+        try {
+          this.onMessage(envelope);
+        } catch (err) {
+          dbg.lastErr = String(err && err.stack || err);
+        }
         return;
       }
       try {

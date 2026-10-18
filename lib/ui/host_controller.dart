@@ -19,13 +19,15 @@ import '../inspector/inspector.dart';
 import '../launcher/launcher.dart';
 import '../relay/relay.dart';
 import '../screencast/screencast.dart';
+import '../video/video.dart';
 import '../sdk/launcher_connection.dart';
 
 /// 远程接管会话种类（一期互斥：同一时刻至多一个会话占用中转回调）。
 enum SessionKind {
   none('无会话'),
   dom('DOM 重绘'),
-  screencast('画面流');
+  screencast('画面流'),
+  video('视频流');
 
   const SessionKind(this.label);
 
@@ -219,6 +221,7 @@ class HostController extends ChangeNotifier {
   CdpConnection? _cdpConnection;
   DomSession? _domSession;
   ScreencastSession? _screencastSession;
+  VideoSession? _videoSession;
 
   /// 最近一次会话枚举到的 shell 页面清单（#16 tab 切换数据源）。
   List<CdpTargetInfo> _shellTargets = const [];
@@ -238,6 +241,7 @@ class HostController extends ChangeNotifier {
   Object? get sessionStatus => switch (_sessionKind) {
     SessionKind.dom => _domSession?.status(),
     SessionKind.screencast => _screencastSession?.status(),
+    SessionKind.video => _videoSession?.status,
     SessionKind.none => null,
   };
 
@@ -292,6 +296,14 @@ class HostController extends ChangeNotifier {
               );
               await session.start();
               _screencastSession = session;
+            case SessionKind.video:
+              final session = VideoSession(
+                page: page,
+                relay: relay,
+                onSwitchRequested: handleSwitch,
+              );
+              await session.start();
+              _videoSession = session;
             case SessionKind.none:
               break;
           }
@@ -343,8 +355,10 @@ class HostController extends ChangeNotifier {
   Future<void> stopSession() async {
     await _domSession?.stop();
     await _screencastSession?.stop();
+    await _videoSession?.stop();
     _domSession = null;
     _screencastSession = null;
+    _videoSession = null;
     _sessionKind = SessionKind.none;
     await _cdpConnection?.client.close();
     _cdpConnection = null;

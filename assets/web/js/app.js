@@ -5,6 +5,7 @@ import { RelayClient, parseHashParams, defaultWsUrl } from './ws-client.js';
 import { DomReplaySession } from './replay.js';
 import { InputCaptureLayer } from './input.js';
 import { ScreencastView } from './screencast.js';
+import { VideoView } from './video.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -18,6 +19,7 @@ function setupModeSwitch() {
   const panes = {
     dom: $('stage-dom'),
     screencast: $('stage-screencast'),
+    video: $('stage-video'),
   };
   for (const btn of buttons) {
     btn.addEventListener('click', () => {
@@ -28,7 +30,12 @@ function setupModeSwitch() {
         b.setAttribute('aria-selected', String(active));
       }
       for (const [mode, pane] of Object.entries(panes)) {
-        pane.classList.toggle('hidden', mode !== btn.dataset.mode);
+        if (pane) pane.classList.toggle('hidden', mode !== btn.dataset.mode);
+      }
+      // #22：视频设置只在视频流模式显示
+      const videoSettings = $('video-settings');
+      if (videoSettings) {
+        videoSettings.classList.toggle('hidden', btn.dataset.mode !== 'video');
       }
       updateFreshness(); // 切模式立即刷新指示（另一模式可能久无数据）
     });
@@ -42,13 +49,15 @@ const SIZE_MODE_KEY = 'gci.viewSizeMode';
 /**
  * @param {import('./replay.js').DomReplaySession} session
  * @param {import('./screencast.js').ScreencastView} screencastView
+ * @param {import('./video.js').VideoView} [videoView]
  */
-function setupSizeToggle(session, screencastView) {
+function setupSizeToggle(session, screencastView, videoView) {
   const btn = $('size-toggle');
   if (!btn) return;
   const apply = (mode) => {
     session.setSizeMode(mode);
     screencastView.setSizeMode(mode);
+    if (videoView) videoView.setSizeMode(mode);
     btn.textContent = mode === 'actual' ? '原始尺寸' : '自适应';
     btn.title = mode === 'actual'
       ? '按源视口原始尺寸显示（可滚动查看），点击切换为自适应'
@@ -66,16 +75,50 @@ function setupSizeToggle(session, screencastView) {
   apply(stored);
 }
 
+/* ---------- 视频流设置（#22）：播放路径 + 解码偏好 ---------- */
+
+const PLAYBACK_PATH_KEY = 'gci.videoPlaybackPath';
+const DECODE_PREF_KEY = 'gci.videoDecodePref';
+
+/**
+ * @param {import('./video.js').VideoView} videoView
+ */
+function setupVideoSettings(videoView) {
+  const pathSel = $('playback-path');
+  const prefSel = $('decode-pref');
+  if (!pathSel || !prefSel) return;
+  try {
+    const storedPath = localStorage.getItem(PLAYBACK_PATH_KEY);
+    if (storedPath) pathSel.value = storedPath;
+    const storedPref = localStorage.getItem(DECODE_PREF_KEY);
+    if (storedPref) prefSel.value = storedPref;
+  } catch { /* 隐私模式等忽略 */ }
+  videoView.setPlaybackPath(pathSel.value);
+  videoView.setDecodePref(prefSel.value);
+  pathSel.addEventListener('change', () => {
+    try { localStorage.setItem(PLAYBACK_PATH_KEY, pathSel.value); } catch { /* 忽略 */ }
+    videoView.setPlaybackPath(pathSel.value);
+  });
+  prefSel.addEventListener('change', () => {
+    try { localStorage.setItem(DECODE_PREF_KEY, prefSel.value); } catch { /* 忽略 */ }
+    videoView.setDecodePref(prefSel.value);
+  });
+}
+
 /* ---------- 顶栏：刷新新鲜度指示（#17 问题 3） ---------- */
 
 /** 各通道最近一次数据到达时间（ms epoch）。 */
-const lastDataAt = { dom: 0, frame: 0 };
+const lastDataAt = { dom: 0, frame: 0, video: 0 };
 const FRESH_STALE_MS = 3000;
 
 function updateFreshness() {
   const el = $('freshness');
   if (!el) return;
-  const last = currentMode === 'screencast' ? lastDataAt.frame : lastDataAt.dom;
+  const last = currentMode === 'screencast'
+    ? lastDataAt.frame
+    : currentMode === 'video'
+      ? lastDataAt.video
+      : lastDataAt.dom;
   if (!last) {
     el.classList.add('hidden');
     return;
@@ -232,12 +275,21 @@ function main() {
       } else if (envelope.ch === 'frame') {
         lastDataAt.frame = Date.now(); // #17 新鲜度指示
         screencastView.handleFrameMessage(envelope.t, envelope.data);
+      } else if (envelope.ch === 'video') {
+        // #22 视频流：videoMeta/videoFrame（v2 二进制 payload 为 Uint8Array）
+        lastDataAt.video = Date.now();
+        videoView.handleVideoMessage(envelope.t, envelope.data);
+        if (envelope.t === 'videoFrame') {
+          const placeholder = $('video-placeholder');
+          if (placeholder) placeholder.classList.add('hidden');
+        }
       } else if (envelope.ch === 'ctrl' && envelope.t === 'shells') {
-        // #16：shell 页签栏；点击切换时先复位两个视图，再请求宿主重建会话
+        // #16：shell 页签栏；点击切换时先复位三个视图，再请求宿主重建会话
         renderShellTabs(envelope.data, client, () => {
           const placeholder = $('stage-placeholder');
           if (placeholder) placeholder.classList.remove('hidden');
           screencastView.reset();
+          videoView.reset();
         });
       } else if (envelope.ch === 'ctrl' && envelope.t === 'fileChooserHint') {
         // #20：文件对话框被拦截，提示回本机操作
@@ -254,6 +306,10 @@ function main() {
     readOnly,
   });
 
+  // 视频流视图（#22）：H.264 Annex B → WebCodecs/MSE 双引擎
+  const videoView = new VideoView($('video-host'), client, { readOnly });
+  setupVideoSettings(videoView);
+
   // 输入捕获层（#11）：overlay 盖在 iframe 上，事件换算源 CSS px 后经
   // input 通道回宿主转 CDP trusted 输入（lib/dom/input_dispatcher.dart）；
   // 只读预览（ro=1）不挂载。
@@ -262,14 +318,14 @@ function main() {
     : new InputCaptureLayer(host, session, client);
 
   // #17：视图尺寸模式切换（自适应/原始尺寸，双模式同步）+ 新鲜度指示
-  setupSizeToggle(session, screencastView);
+  setupSizeToggle(session, screencastView, videoView);
   setInterval(updateFreshness, 250);
 
   // 中转不可达（如本地静态伺服预览）属预期：页面显示「未连接」并自动重连
   client.connect();
 
   // 暴露调试句柄（方便在控制台验证接入点）
-  window.__remote = { client, session, inputLayer, screencastView };
+  window.__remote = { client, session, inputLayer, screencastView, videoView };
 }
 
 main();

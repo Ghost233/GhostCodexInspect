@@ -12,6 +12,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:maclauncher_sdk/maclauncher_sdk.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../cdp/cdp.dart';
 import '../dom/dom.dart';
@@ -48,6 +49,8 @@ class HostController extends ChangeNotifier {
        inspector = inspector ?? Inspector(),
        profile = profile ?? TargetProfile.chatGpt,
        _cdpConnector = cdpConnector ?? connectCdp {
+    // 注意：构造器体内 profile 是初始化形参（可空），需 this. 走字段。
+    _debugPort = this.profile.defaultDebugPort;
     _sdkStateSub = this.launcher.states.listen((status) {
       sdkStatus = status;
       notifyListeners();
@@ -109,8 +112,33 @@ class HostController extends ChangeNotifier {
   /// 目标是否在运行（按进程发现）。
   bool get targetRunning => runningPids.isNotEmpty;
 
-  /// 生效调试端口（profile 默认值；一期不可在 UI 改）。
-  int get debugPort => profile.defaultDebugPort;
+  /// 生效调试端口：profile 默认值，loadSettings() 可覆盖，UI 可改。
+  static const String _kDebugPortKey = 'gci.debugPort';
+
+  /// 当前使用的 CDP 调试端口（可在启动器页修改并持久化，#26）。
+  int get debugPort => _debugPort;
+  late int _debugPort;
+
+  /// 修改调试端口（1024-65535），持久化到本机设置。
+  Future<void> setDebugPort(int port) async {
+    if (port < 1024 || port > 65535) {
+      throw ArgumentError('端口须在 1024-65535 之间：$port');
+    }
+    _debugPort = port;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kDebugPortKey, port);
+  }
+
+  /// 启动时加载持久化设置（端口等）。
+  Future<void> loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final port = prefs.getInt(_kDebugPortKey);
+    if (port != null && port >= 1024 && port <= 65535) {
+      _debugPort = port;
+      notifyListeners();
+    }
+  }
 
   Future<void> _run(String action, Future<void> Function() body) async {
     if (busy) return;
@@ -142,7 +170,7 @@ class HostController extends ChangeNotifier {
   /// 带参启动目标应用。[confirmed] 必须来自 UI 确认对话框。
   Future<void> launchTarget({required bool confirmed}) =>
       _run('带参启动', () async {
-        await appLauncher.launch(profile, confirmRealTarget: confirmed);
+        await appLauncher.launch(profile, debugPort: _debugPort, confirmRealTarget: confirmed);
         await refreshRunningState();
       });
 

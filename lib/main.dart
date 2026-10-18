@@ -33,7 +33,7 @@ class _GhostCodexInspectAppState extends State<GhostCodexInspectApp> {
   void initState() {
     super.initState();
     if (widget.autoConnect) {
-      _controller.connectSdk();
+      _controller.loadSettings().then((_) => _controller.connectSdk());
     }
   }
 

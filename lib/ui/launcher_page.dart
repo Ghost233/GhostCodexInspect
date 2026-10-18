@@ -246,7 +246,7 @@ class _RunStateCard extends StatelessWidget {
               value: controller.runningPids.join(', '),
               mono: true,
             ),
-          FieldRow(label: '调试端口', value: '${controller.debugPort}', mono: true),
+          _DebugPortEditor(controller: controller),
           const SizedBox(height: 8),
           Text(
             '带参启动会先完全退出运行中的实例，再以调试端口拉起'
@@ -307,6 +307,67 @@ class _RunStateCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 调试端口编辑行（#26）：可修改并持久化，供多实例并存时避开端口冲突。
+class _DebugPortEditor extends StatefulWidget {
+  const _DebugPortEditor({required this.controller});
+
+  final HostController controller;
+
+  @override
+  State<_DebugPortEditor> createState() => _DebugPortEditorState();
+}
+
+class _DebugPortEditorState extends State<_DebugPortEditor> {
+  late final TextEditingController _text =
+      TextEditingController(text: '${widget.controller.debugPort}');
+  String? _error;
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  Future<void> _apply() async {
+    final port = int.tryParse(_text.text.trim());
+    if (port == null || port < 1024 || port > 65535) {
+      setState(() => _error = '端口须是 1024-65535 的整数');
+      return;
+    }
+    await widget.controller.setDebugPort(port);
+    setState(() => _error = null);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        SizedBox(
+          width: 120,
+          child: Text('调试端口', style: theme.textTheme.bodyMedium),
+        ),
+        SizedBox(
+          width: 96,
+          child: TextField(
+            controller: _text,
+            keyboardType: TextInputType.number,
+            style: theme.textTheme.bodyMedium,
+            decoration: InputDecoration(
+              isDense: true,
+              errorText: _error,
+              border: const OutlineInputBorder(),
+            ),
+            onSubmitted: (_) => _apply(),
+          ),
+        ),
+        const SizedBox(width: 8),
+        TextButton(onPressed: _apply, child: const Text('应用')),
+      ],
     );
   }
 }

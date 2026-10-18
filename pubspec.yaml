@@ -43,6 +43,7 @@ dependencies:
   puppeteer: ^3.26.0
   web_socket_channel: ^3.0.3
   flutter_inappwebview: ^6.1.5
+  shared_preferences: ^2.5.6
 
 dev_dependencies:
   flutter_test:

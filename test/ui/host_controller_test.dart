@@ -5,7 +5,9 @@ library;
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ghost_codex_inspect/cdp/cdp.dart';
+import 'package:ghost_codex_inspect/launcher/launcher.dart';
 import 'package:ghost_codex_inspect/ui/host_controller.dart';
 
 class _FakeCdpPage implements CdpPage {
@@ -196,5 +198,39 @@ void main() {
     expect(controller.shellTargets, isEmpty);
     expect(controller.activeShellTargetId, isNull);
     await controller.switchTarget('shell-1'); // 无会话 no-op，不崩溃
+  });
+
+  group('调试端口设置（#26）', () {
+    test('默认取 profile.defaultDebugPort', () {
+      final c = HostController(autoRefresh: false);
+      addTearDown(c.dispose);
+      expect(c.debugPort, TargetProfile.chatGpt.defaultDebugPort);
+    });
+
+    test('setDebugPort 校验范围并持久化', () async {
+      SharedPreferences.setMockInitialValues({});
+      final c = HostController(autoRefresh: false);
+      addTearDown(c.dispose);
+      await c.setDebugPort(9300);
+      expect(c.debugPort, 9300);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getInt('gci.debugPort'), 9300);
+      expect(() => c.setDebugPort(80), throwsArgumentError);
+      expect(() => c.setDebugPort(70000), throwsArgumentError);
+    });
+
+    test('loadSettings 读取持久化端口，非法值回落默认', () async {
+      SharedPreferences.setMockInitialValues({'gci.debugPort': 9301});
+      final c = HostController(autoRefresh: false);
+      addTearDown(c.dispose);
+      await c.loadSettings();
+      expect(c.debugPort, 9301);
+
+      SharedPreferences.setMockInitialValues({'gci.debugPort': 80});
+      final c2 = HostController(autoRefresh: false);
+      addTearDown(c2.dispose);
+      await c2.loadSettings();
+      expect(c2.debugPort, TargetProfile.chatGpt.defaultDebugPort);
+    });
   });
 }

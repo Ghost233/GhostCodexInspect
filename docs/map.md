@@ -30,7 +30,7 @@
 
 ## Decisions so far
 
-> 长期有效的决策已提炼为 ADR（查询第一入口）：[0001](../adr/0001-remote-client-plain-web.md) 远程端纯 web · [0002](../adr/0002-injection-route-launch-args.md) 注入路线 A · [0003](../adr/0003-dom-replay-rrweb.md) rrweb · [0004](../adr/0004-host-backend-dart-embedded.md) Dart 内嵌后端 · [0005](../adr/0005-relay-security-model.md) 中转安全模型 · [0006](../adr/0006-envelope-protocol.md) 信封协议 · [0007](../adr/0007-debug-port-allocation.md) 端口分配 · [0008](../adr/0008-session-exclusivity.md) 会话互斥 · [0009](../adr/0009-single-flutter-package.md) 单包布局。下表保留执行过程索引（含 commit 号与实测数据）。
+> 长期有效的决策已提炼为 ADR（查询第一入口）：[0001](./adr/0001-remote-client-plain-web.md) 远程端纯 web · [0002](./adr/0002-injection-route-launch-args.md) 注入路线 A · [0003](./adr/0003-dom-replay-rrweb.md) rrweb · [0004](./adr/0004-host-backend-dart-embedded.md) Dart 内嵌后端 · [0005](./adr/0005-relay-security-model.md) 中转安全模型 · [0006](./adr/0006-envelope-protocol.md) 信封协议 · [0007](./adr/0007-debug-port-allocation.md) 端口分配 · [0008](./adr/0008-session-exclusivity.md) 会话互斥 · [0009](./adr/0009-single-flutter-package.md) 单包布局。下表保留执行过程索引（含 commit 号与实测数据）。
 
 
 

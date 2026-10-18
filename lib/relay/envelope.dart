@@ -14,6 +14,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:typed_data';
 
 /// 协议版本。
 const int kRelayProtocolVersion = 1;
@@ -165,4 +166,84 @@ class RelayEnvelope {
       return null;
     }
   }
+}
+
+/// 能力协商标记（工单 #15 二期）：auth 握手 `data.caps` 声明支持的特性。
+/// 客户端 caps 含 [kBinaryCapability] 且服务端回显后，该连接的大流量消息
+/// （dom 压缩 payload、frame JPEG）走 v2 二进制帧；未声明则全程文本帧。
+const String kBinaryCapability = 'bin.v2';
+
+/// 信封 v2 二进制帧布局（固定头 15 字节 + 原始 payload）：
+/// - `[0]`：版本，固定 0x02；
+/// - `[1]`：通道 id（[RelayChannel] 枚举序 + 1）；
+/// - `[2]`：消息类型 id（[RelayMessageType] 枚举序 + 1）；
+/// - `[3..6]`：seq，uint32 小端；
+/// - `[7..14]`：ts，int64 小端（UTC 毫秒）；
+/// - `[15..]`：payload 原始字节（dom=fflate 压缩的 JSON；frame=JPEG）。
+///
+/// 控制面消息（auth/ping/输入下发等）永远走文本帧，二进制帧只用于
+/// 宿主→远程端的大流量下行。
+const int kBinaryHeaderLength = 15;
+
+/// 一条解码后的 v2 二进制信封（payload 保持原始字节，由消费方解释）。
+class BinaryEnvelope {
+  const BinaryEnvelope({
+    required this.channel,
+    required this.type,
+    required this.seq,
+    required this.ts,
+    required this.payload,
+  });
+
+  final RelayChannel channel;
+  final RelayMessageType type;
+  final int seq;
+  final int ts;
+  final Uint8List payload;
+}
+
+/// 编码 v2 二进制帧。
+Uint8List encodeBinaryEnvelope(
+  RelayChannel channel,
+  RelayMessageType type,
+  int seq,
+  Uint8List payload, {
+  int? ts,
+}) {
+  final out = ByteData(kBinaryHeaderLength)
+    ..setUint8(0, 2)
+    ..setUint8(1, channel.index + 1)
+    ..setUint8(2, type.index + 1)
+    ..setUint32(3, seq, Endian.little)
+    ..setUint64(7, ts ?? DateTime.now().toUtc().millisecondsSinceEpoch,
+        Endian.little);
+  return Uint8List.fromList(
+      out.buffer.asUint8List().followedBy(payload).toList(growable: false));
+}
+
+/// 解码 v2 二进制帧；格式问题抛 [RelayEnvelopeFormatException]。
+BinaryEnvelope decodeBinaryEnvelope(Uint8List raw) {
+  if (raw.length < kBinaryHeaderLength) {
+    throw RelayEnvelopeFormatException('二进制帧短于 15 字节头：${raw.length}');
+  }
+  final view = ByteData.sublistView(raw);
+  final version = view.getUint8(0);
+  if (version != 2) {
+    throw RelayEnvelopeFormatException('不支持的二进制帧版本：$version');
+  }
+  final channelId = view.getUint8(1);
+  final typeId = view.getUint8(2);
+  if (channelId < 1 || channelId > RelayChannel.values.length) {
+    throw RelayEnvelopeFormatException('未知通道 id：$channelId');
+  }
+  if (typeId < 1 || typeId > RelayMessageType.values.length) {
+    throw RelayEnvelopeFormatException('未知消息类型 id：$typeId');
+  }
+  return BinaryEnvelope(
+    channel: RelayChannel.values[channelId - 1],
+    type: RelayMessageType.values[typeId - 1],
+    seq: view.getUint32(3, Endian.little),
+    ts: view.getUint64(7, Endian.little),
+    payload: Uint8List.sublistView(raw, kBinaryHeaderLength),
+  );
 }

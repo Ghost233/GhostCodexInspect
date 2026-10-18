@@ -57,6 +57,16 @@ export class ScreencastView {
       }
       return;
     }
+    // v2 二进制帧（#15）：ws-client 把 frame payload 还原为 Uint8Array
+    // （JPEG 原始字节），走 Blob URL 免 base64 解码；文本帧保持原路径。
+    if (type === 'frame' && data instanceof Uint8Array) {
+      if (this._blobUrl) URL.revokeObjectURL(this._blobUrl);
+      this._blobUrl = URL.createObjectURL(new Blob([data], { type: 'image/jpeg' }));
+      this.img.src = this._blobUrl;
+      if (this.placeholder) this.placeholder.classList.add('hidden');
+      this.img.classList.add('has-frame');
+      return;
+    }
     if (type === 'frame' && data && typeof data.data === 'string') {
       this.img.src = 'data:image/jpeg;base64,' + data.data;
       if (this.placeholder) this.placeholder.classList.add('hidden');

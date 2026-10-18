@@ -14,6 +14,7 @@ library;
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 /// 包装标记字段名（data 含此字段即为压缩包装）。
 const String kCompressionMarkerField = 'z';
@@ -43,6 +44,14 @@ Object? maybeCompressPayload(Object? data, {int minBytes = kCompressionMinBytes}
 /// 判断 data 是否为压缩包装。
 bool isCompressedPayload(Object? data) =>
     data is Map && data[kCompressionMarkerField] == kCompressionAlgorithm;
+
+/// v2 二进制帧的 dom payload（#15）：zlib(utf8(jsonEncode(data))) 原始字
+/// 节，远程端 fflate `unzlibSync` 解压后 `JSON.parse`。
+///
+/// v2 通道没有 JSON 包装成本，不再按 [kCompressionMinBytes] 阈值跳压：
+/// 调用方（DomSession）自行决定是否对 v2 客户端启用。
+Uint8List compressPayloadBytes(Object? data) =>
+    Uint8List.fromList(zlib.encode(utf8.encode(jsonEncode(data))));
 
 /// 解压压缩包装，还原原始 payload（JSON 反序列化后的对象）。
 ///

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
@@ -195,9 +196,19 @@ class RelayServer {
   }
 
   /// 向全部已鉴权远程端广播信封（如 dom 增量、frame 帧）。
-  void broadcast(RelayChannel channel, RelayMessageType type, Object? data) {
+  ///
+  /// [binaryPayload]（工单 #15 二期）：提供时，声明了 bin.v2 能力的
+  /// 客户端收 v2 二进制帧（payload 原始字节，无 JSON/base64）；未声明的
+  /// 旧客户端仍收 JSON 文本帧（[data] 须保持向后兼容形态）。
+  void broadcast(RelayChannel channel, RelayMessageType type, Object? data,
+      {Uint8List? binaryPayload}) {
     for (final client in _clients.values) {
-      if (client._authed) client.send(channel, type, data);
+      if (!client._authed) continue;
+      if (binaryPayload != null && client.supportsBinary) {
+        client.sendBinary(channel, type, binaryPayload);
+      } else {
+        client.send(channel, type, data);
+      }
     }
   }
 
@@ -297,6 +308,12 @@ class _ClientSession {
 
   bool _authed = false;
 
+  /// 客户端在 auth 握手里声明的能力（如 bin.v2）。
+  final Set<String> _caps = {};
+
+  /// 是否支持 v2 二进制帧下行（#15）。
+  bool get supportsBinary => _caps.contains(kBinaryCapability);
+
   /// 是否已通过 token 鉴权。
   bool get isAuthed => _authed;
 
@@ -322,8 +339,8 @@ class _ClientSession {
 
   void _onData(dynamic raw) {
     if (_closed) return;
-    // 本期只收 JSON 文本帧；frame 通道二进制帧是 #11 之后的演进口子
-    // （host-backend.md §三），届时在此分派二进制路径。
+    // 上行只收 JSON 文本帧：远程端→宿主的消息（input/ctrl）都是小体
+    // 积控制面数据，二进制帧仅用于宿主→远程端大流量下行（#15）。
     if (raw is! String) {
       close(1003, '仅接受 JSON 文本帧');
       return;
@@ -363,7 +380,14 @@ class _ClientSession {
     }
     _authed = true;
     _authTimer?.cancel();
-    send(RelayChannel.ctrl, RelayMessageType.authOk, {'clientId': id});
+    // 能力协商（#15）：客户端声明的 caps 记到连接上，服务端回显自身
+    // 支持清单；此后按客户端能力选择文本/二进制下发。
+    final caps = data is Map ? data['caps'] : null;
+    if (caps is List) {
+      _caps.addAll(caps.whereType<String>());
+    }
+    send(RelayChannel.ctrl, RelayMessageType.authOk,
+        {'clientId': id, 'caps': [kBinaryCapability]});
     _server._notifyAuthed(id);
   }
 
@@ -376,6 +400,14 @@ class _ClientSession {
       data: data,
     );
     this.channel.sink.add(envelope.encode());
+  }
+
+  /// 发送 v2 二进制帧（#15）：仅用于大流量下行，payload 为原始字节。
+  void sendBinary(
+      RelayChannel channel, RelayMessageType type, Uint8List payload) {
+    if (_closed) return;
+    this.channel.sink
+        .add(encodeBinaryEnvelope(channel, type, _outSeq++, payload));
   }
 
   Future<void> close([int code = 1000, String? reason]) async {

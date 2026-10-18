@@ -16,6 +16,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 
 import '../cdp/cdp_client.dart';
 import '../dom/input_dispatcher.dart';
@@ -180,10 +181,13 @@ class ScreencastSession {
       });
       final data = result['data'];
       if (data is String) {
-        relay.broadcast(RelayChannel.frame, RelayMessageType.frame, {
-          'data': data,
-          'metadata': const {'synthetic': true},
-        });
+        relay.broadcast(
+          RelayChannel.frame,
+          RelayMessageType.frame,
+          {'data': data, 'metadata': const {'synthetic': true}},
+          // v2 客户端（#15）：JPEG 原始字节，免 base64。
+          binaryPayload: base64Decode(data),
+        );
       }
     } catch (e) {
       _lastError = '补帧失败：$e';
@@ -192,10 +196,13 @@ class ScreencastSession {
 
   /// 帧到达：广播后立即 ack（ack 流控：不回执源侧就停推）。
   void _onFrame(ScreencastFrameData frame) {
-    relay.broadcast(RelayChannel.frame, RelayMessageType.frame, {
-      'data': frame.data,
-      'metadata': frame.metadata,
-    });
+    relay.broadcast(
+      RelayChannel.frame,
+      RelayMessageType.frame,
+      {'data': frame.data, 'metadata': frame.metadata},
+      // v2 客户端（#15）：JPEG 原始字节，免 base64。
+      binaryPayload: base64Decode(frame.data),
+    );
     _framesSent++;
     _lastFrameAt = DateTime.now().toUtc().millisecondsSinceEpoch;
     if (!_firstFrame.isCompleted) _firstFrame.complete();

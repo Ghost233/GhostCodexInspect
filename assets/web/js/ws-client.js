@@ -27,6 +27,18 @@
  * 压缩（#14）：大 payload 的 data 为 {"z":"fflate","b64":"<base64(zlib(json))>"}
  * 包装（宿主侧 lib/relay/compression.dart），本模块在分发前解压还原，
  * 上层（replay.js 等）始终看到原始 payload。
+ *
+ * 信封 v2 二进制帧（#15 二期）：
+ * - 鉴权握手声明能力：auth 的 data 带 caps:['bin.v2']；中转 authOk 回显
+ *   服务端 caps。协商成功后 dom（zlib 压缩 JSON）与 frame（JPEG 原始
+ *   字节）的大流量下行走二进制帧，免 JSON/base64 开销。
+ * - 帧布局：15 字节固定头 + 原始 payload。[0]=0x02；[1]=通道 id
+ *   （dom=1 frame=2 input=3 ctrl=4）；[2]=类型 id（meta=1 full=2 inc=3
+ *   batch=4 resync=5 ping=6 pong=7 auth=8 authOk=9 authErr=10 input=11
+ *   frame=12）；[3..6]=seq uint32 小端；[7..14]=ts int64 小端。
+ * - 本模块把二进制帧还原成与文本信封同形的 {ch,t,seq,ts,data} 再分发：
+ *   dom 的 data 为解压后的 JSON 对象；frame 的 data 为 Uint8Array（JPEG）。
+ *   旧中转不回显 bin.v2 时本模块也始终兼容纯文本帧。
  */
 
 import { unzlibSync, strFromU8 } from '../vendor/fflate.js';
@@ -69,6 +81,47 @@ function b64ToU8(b64) {
   const u8 = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
   return u8;
+}
+
+/** v2 二进制帧固定头长度（见本文件头注释与 lib/relay/envelope.dart） */
+const BINARY_HEADER_LENGTH = 15;
+/** 能力协商标记（auth caps / authOk caps 回显） */
+const BINARY_CAPABILITY = 'bin.v2';
+/** 通道 id ↔ 名（与 RelayChannel 枚举序一致，id = 序 + 1） */
+const CHANNEL_NAMES = ['dom', 'frame', 'input', 'ctrl'];
+/** 类型 id ↔ 名（与 RelayMessageType 枚举序一致，id = 序 + 1） */
+const TYPE_NAMES = [
+  'meta', 'full', 'inc', 'batch', 'resync', 'ping', 'pong',
+  'auth', 'authOk', 'authErr', 'input', 'frame',
+];
+
+/**
+ * 解析 v2 二进制帧为与文本信封同形的对象。
+ * dom 通道 payload 是 zlib 压缩的 JSON（解压后还原对象）；frame 通道
+ * payload 是 JPEG 原始字节（data 为 Uint8Array 交给 screencast.js）。
+ * 格式非法抛异常（调用方按坏帧处理）。
+ */
+export function decodeBinaryFrame(buf) {
+  const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  if (u8.length < BINARY_HEADER_LENGTH) {
+    throw new Error('二进制帧短于 15 字节头：' + u8.length);
+  }
+  const view = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  if (view.getUint8(0) !== 2) throw new Error('不支持的二进制帧版本：' + view.getUint8(0));
+  const channel = CHANNEL_NAMES[view.getUint8(1) - 1];
+  const type = TYPE_NAMES[view.getUint8(2) - 1];
+  if (!channel) throw new Error('未知通道 id：' + view.getUint8(1));
+  if (!type) throw new Error('未知消息类型 id：' + view.getUint8(2));
+  const payload = u8.subarray(BINARY_HEADER_LENGTH);
+  return {
+    ch: channel,
+    t: type,
+    seq: view.getUint32(3, true),
+    ts: Number(view.getBigUint64(7, true)),
+    data: channel === 'dom'
+      ? JSON.parse(strFromU8(unzlibSync(payload)))
+      : payload,
+  };
 }
 
 /**
@@ -138,20 +191,32 @@ export class RelayClient {
       return;
     }
     this.ws = ws;
+    // v2 二进制帧以 ArrayBuffer 收取（#15）
+    ws.binaryType = 'arraybuffer';
 
     ws.onopen = () => {
       this._setState('connected');
       this.reconnectDelay = RECONNECT_BASE_MS;
-      // 协议对齐点：WS 建立后首消息为鉴权
-      this._send('ctrl', 'auth', { token: this.token });
+      // 协议对齐点：WS 建立后首消息为鉴权；caps 声明 v2 二进制能力（#15）
+      this._send('ctrl', 'auth', { token: this.token, caps: [BINARY_CAPABILITY] });
     };
 
     ws.onmessage = (ev) => {
       let envelope;
+      if (ev.data instanceof ArrayBuffer) {
+        // v2 二进制帧：还原成文本信封同形对象后走同一分发路径
+        try {
+          envelope = decodeBinaryFrame(ev.data);
+        } catch (err) {
+          console.warn('[ws-client] 二进制帧解析失败，丢弃本帧', err);
+          return;
+        }
+        this.onMessage(envelope);
+        return;
+      }
       try {
         envelope = JSON.parse(ev.data);
       } catch {
-        // 非 JSON 帧：忽略（也可能是后续的二进制批量帧，本期不处理）
         return;
       }
       if (!envelope || typeof envelope !== 'object') return;
@@ -160,6 +225,9 @@ export class RelayClient {
       if (envelope.ch === 'ctrl') {
         if (envelope.t === 'authOk') {
           this.authed = true;
+          // 服务端回显的能力清单（诊断用；旧中转无 caps 字段则视为纯文本）
+          this.serverCaps = (envelope.data && envelope.data.caps) || [];
+          this.binaryEnabled = this.serverCaps.includes(BINARY_CAPABILITY);
           this._setState('authed');
           return;
         }

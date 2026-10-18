@@ -170,6 +170,8 @@ class DomSession {
       RelayChannel.dom,
       type,
       maybeCompressPayload(data, minBytes: compressionMinBytes),
+      // v2 客户端（#15）：zlib 压缩的 JSON 原始字节，免 base64+JSON 包装。
+      binaryPayload: compressPayloadBytes(data),
     );
     _envelopesSent++;
   }

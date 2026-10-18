@@ -3,4 +3,5 @@ library;
 
 export 'dom_collector.dart';
 export 'dom_session.dart';
+export 'file_chooser_guard.dart';
 export 'input_dispatcher.dart';

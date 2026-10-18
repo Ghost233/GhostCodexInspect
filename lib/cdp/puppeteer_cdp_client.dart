@@ -119,6 +119,17 @@ class PuppeteerCdpPage implements CdpPage {
       );
 
   @override
+  Stream<Map<String, dynamic>> get fileChooserOpened =>
+      _page.devTools.page.onFileChooserOpened.map(
+        (event) => <String, dynamic>{
+          'frameId': event.frameId.value,
+          'mode': event.mode.value,
+          if (event.backendNodeId != null)
+            'backendNodeId': event.backendNodeId!.value,
+        },
+      );
+
+  @override
   Future<void> close() async {
     // 仅释放 puppeteer 侧会话，不关闭目标应用页面。
   }

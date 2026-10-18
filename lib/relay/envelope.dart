@@ -64,7 +64,10 @@ enum RelayMessageType {
   shells,
 
   /// data = {targetId}；宿主停当前会话、attach 目标页后重建同类会话。
-  switchTarget;
+  switchTarget,
+
+  /// data = {message}；宿主→远程端的文件对话框拦截提示（#20）。
+  fileChooserHint;
 
   static RelayMessageType? tryParse(String name) =>
       RelayMessageType.values.asNameMap()[name];

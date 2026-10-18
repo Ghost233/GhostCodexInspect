@@ -93,6 +93,7 @@ const CHANNEL_NAMES = ['dom', 'frame', 'input', 'ctrl'];
 const TYPE_NAMES = [
   'meta', 'full', 'inc', 'batch', 'resync', 'ping', 'pong',
   'auth', 'authOk', 'authErr', 'input', 'frame', 'shells', 'switchTarget',
+  'fileChooserHint',
 ];
 
 /**

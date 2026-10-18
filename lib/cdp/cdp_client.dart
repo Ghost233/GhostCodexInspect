@@ -92,6 +92,11 @@ abstract class CdpPage {
   /// 工单 #12）。
   Stream<ScreencastFrameData> get screencastFrames;
 
+  /// 文件选择器打开事件流（CDP `Page.fileChooserOpened` 的 params，含
+  /// `backendNodeId`/`mode`；工单 #20）。仅在
+  /// `Page.setInterceptFileChooserDialog {enabled:true}` 之后有事件。
+  Stream<Map<String, dynamic>> get fileChooserOpened;
+
   /// 关闭页面句柄（不断开整个 CDP 连接）。
   Future<void> close();
 }

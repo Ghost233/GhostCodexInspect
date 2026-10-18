@@ -8,6 +8,7 @@
       #counter-btn { padding: 8px 16px; font-size: 16px; }
       #counter-label { margin-left: 12px; }
       #echo-input { display: block; margin-top: 16px; width: 320px; padding: 6px; }
+      #file-input { display: block; margin-top: 16px; }
       #echo-label { margin-top: 8px; color: #555; }
     </style>
   </head>
@@ -21,6 +22,8 @@
     <span id="counter-label">0</span>
     <input id="echo-input" type="text" placeholder="输入会镜像到下方" />
     <div id="echo-label"></div>
+    <!-- 文件对话框拦截（工单 #20）测试面 -->
+    <input id="file-input" type="file" />
     <script>
       var count = 0;
       var label = document.getElementById('counter-label');

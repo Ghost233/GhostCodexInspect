@@ -239,6 +239,11 @@ function main() {
           if (placeholder) placeholder.classList.remove('hidden');
           screencastView.reset();
         });
+      } else if (envelope.ch === 'ctrl' && envelope.t === 'fileChooserHint') {
+        // #20：文件对话框被拦截，提示回本机操作
+        const hint = (envelope.data && envelope.data.message) ||
+          '文件选择需要回本机操作';
+        showError(hint);
       }
       // ctrl 的其余类型：本期留钩子，不处理
     },

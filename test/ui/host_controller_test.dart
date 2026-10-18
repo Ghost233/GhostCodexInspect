@@ -39,6 +39,10 @@ class _FakeCdpPage implements CdpPage {
       const Stream<ScreencastFrameData>.empty();
 
   @override
+  Stream<Map<String, dynamic>> get fileChooserOpened =>
+      const Stream<Map<String, dynamic>>.empty();
+
+  @override
   Future<void> close() async {
     closed = true;
   }

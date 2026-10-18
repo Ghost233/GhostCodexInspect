@@ -100,8 +100,10 @@ Future<void> main() async {
     await client.sink.close();
 
     final status = session.status();
-    stdout.writeln('dom 消息 $domMessages 条 / $domBytes B'
-        '（全量 $fullBytes B，增量 $incBytes B / $incEvents 事件）');
+    stdout.writeln(
+      'dom 消息 $domMessages 条 / $domBytes B'
+      '（全量 $fullBytes B，增量 $incBytes B / $incEvents 事件）',
+    );
     stdout.writeln(
       '会话：batches=${status.batchesReceived} '
       'envelopes=${status.envelopesSent} inputs=${status.inputsDispatched} '
@@ -145,8 +147,10 @@ JSON.stringify({
       ..writeln(residue)
       ..writeln('```')
       ..writeln()
-      ..writeln('对照（#4 未压缩原始值）：全量快照 2,859,782 B；'
-          '3 秒 24 事件 2,876,630 B。');
+      ..writeln(
+        '对照（#4 未压缩原始值）：全量快照 2,859,782 B；'
+        '3 秒 24 事件 2,876,630 B。',
+      );
     final ts = DateTime.now()
         .toLocal()
         .toString()

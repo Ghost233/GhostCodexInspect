@@ -19,6 +19,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import '../cdp/cdp_client.dart';
+import '../dom/file_chooser_guard.dart';
 import '../dom/input_dispatcher.dart';
 import '../relay/envelope.dart';
 import '../relay/relay_server.dart';
@@ -83,6 +84,7 @@ class ScreencastSession {
   final void Function(String targetId)? onSwitchRequested;
 
   StreamSubscription<ScreencastFrameData>? _frameSub;
+  FileChooserGuard? _fileChooserGuard;
   String? _lastError;
   int _framesSent = 0;
   int _inputsDispatched = 0;
@@ -126,6 +128,10 @@ class ScreencastSession {
 
     await page.send('Page.enable');
 
+    // 文件对话框拦截守卫（#20）：原生文件框拦下，远程端提示回本机。
+    _fileChooserGuard = FileChooserGuard(page: page, relay: relay);
+    await _fileChooserGuard!.start();
+
     // 视口元信息：远程端坐标映射的基准（与 JPEG 像素尺寸解耦）。
     await _broadcastViewportMeta();
 
@@ -159,6 +165,8 @@ class ScreencastSession {
     if (relay.onClientAuthed == _onClientAuthed) {
       relay.onClientAuthed = null;
     }
+    await _fileChooserGuard?.stop();
+    _fileChooserGuard = null;
     // 重启后首帧语义重新生效。
     if (_firstFrame.isCompleted) _firstFrame = Completer<void>();
   }

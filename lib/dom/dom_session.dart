@@ -16,6 +16,7 @@ import '../relay/compression.dart';
 import '../relay/envelope.dart';
 import '../relay/relay_server.dart';
 import 'dom_collector.dart';
+import 'file_chooser_guard.dart';
 import 'input_dispatcher.dart';
 
 /// DOM 重绘会话状态快照（宿主 UI / 诊断用）。
@@ -74,6 +75,7 @@ class DomSession {
   final void Function(String targetId)? onSwitchRequested;
 
   StreamSubscription<String>? _bindingSub;
+  FileChooserGuard? _fileChooserGuard;
   String? _lastError;
   int _batchesReceived = 0;
   int _envelopesSent = 0;
@@ -117,6 +119,9 @@ class DomSession {
     //    覆盖未来导航。
     final source = collectorSource ?? await loadCollectorSource();
     await page.send('Page.enable');
+    // 文件对话框拦截守卫（#20）：原生文件框拦下，远程端提示回本机。
+    _fileChooserGuard = FileChooserGuard(page: page, relay: relay);
+    await _fileChooserGuard!.start();
     await page.send('Page.addScriptToEvaluateOnNewDocument', {
       'source': source,
     });
@@ -136,6 +141,8 @@ class DomSession {
     if (relay.onClientAuthed == _onClientAuthed) {
       relay.onClientAuthed = null;
     }
+    await _fileChooserGuard?.stop();
+    _fileChooserGuard = null;
     try {
       await page.evaluate(
         '(function(){'

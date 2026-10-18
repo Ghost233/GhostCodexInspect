@@ -206,6 +206,40 @@ Future<void> main() async {
       what: '输入文本应镜像到 #echo-label',
     );
     stdout.writeln('文本输入生效：#echo-label = $echo');
+
+    // #20：点击文件输入 → 原生框被拦截 → 远程端收到 ctrl/fileChooserHint
+    final fileRect = jsonDecode(
+      (await page.evaluate(
+        "JSON.stringify(document.getElementById('file-input').getBoundingClientRect())",
+      )) as String,
+    ) as Map<String, dynamic>;
+    final fX = (fileRect['left'] as num) + 5;
+    final fY = (fileRect['top'] as num) + (fileRect['height'] as num) / 2;
+    send(RelayChannel.input, RelayMessageType.input, {
+      'kind': 'mouse',
+      'action': 'down',
+      'x': fX,
+      'y': fY,
+    });
+    send(RelayChannel.input, RelayMessageType.input, {
+      'kind': 'mouse',
+      'action': 'up',
+      'x': fX,
+      'y': fY,
+    });
+    final hintEnvelope = await incoming.stream
+        .firstWhere(
+          (e) =>
+              e.channel == RelayChannel.ctrl &&
+              e.type == RelayMessageType.fileChooserHint,
+        )
+        .timeout(
+          const Duration(seconds: 10),
+          onTimeout: () =>
+              throw TimeoutException('点击文件输入未收到 ctrl/fileChooserHint（#20）'),
+        );
+    stdout.writeln('文件对话框拦截提示到达：${hintEnvelope.data}');
+
     await incoming.close();
     await client.sink.close();
 

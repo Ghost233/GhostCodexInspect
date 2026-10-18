@@ -198,6 +198,11 @@ class RawCdpPage implements CdpPage {
       });
 
   @override
+  Stream<Map<String, dynamic>> get fileChooserOpened => _events.stream
+      .where((e) => e['method'] == 'Page.fileChooserOpened')
+      .map((e) => (e['params'] as Map?)?.cast<String, dynamic>() ?? {});
+
+  @override
   Future<void> close() async {
     await _subscription.cancel();
     await _events.close();

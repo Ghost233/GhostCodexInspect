@@ -83,11 +83,19 @@ Future<void> main() async {
       final y = double.parse(m.group(2)!);
       stdout.writeln('composer 中点：($x, $y)  $foundRaw');
       await dispatchInput(page, {
-        'kind': 'mouse', 'action': 'down', 'x': x, 'y': y, 'button': 'left',
+        'kind': 'mouse',
+        'action': 'down',
+        'x': x,
+        'y': y,
+        'button': 'left',
       });
       inputs++;
       await dispatchInput(page, {
-        'kind': 'mouse', 'action': 'up', 'x': x, 'y': y, 'button': 'left',
+        'kind': 'mouse',
+        'action': 'up',
+        'x': x,
+        'y': y,
+        'button': 'left',
       });
       inputs++;
       await Future<void>.delayed(const Duration(milliseconds: 500));
@@ -122,7 +130,8 @@ Future<void> main() async {
       await dispatchInput(page, {'kind': 'text', 'text': testText});
       inputs++;
       await Future<void>.delayed(const Duration(milliseconds: 300));
-      final readBack = '${await page.evaluate('''
+      final readBack =
+          '${await page.evaluate('''
 (function () {
   const el = document.activeElement;
   if (!el) return '';
@@ -152,7 +161,8 @@ Future<void> main() async {
 })()
 ''');
       await Future<void>.delayed(const Duration(milliseconds: 300));
-      final after = '${await page.evaluate('''
+      final after =
+          '${await page.evaluate('''
 (function () {
   const el = document.activeElement;
   if (!el) return '';

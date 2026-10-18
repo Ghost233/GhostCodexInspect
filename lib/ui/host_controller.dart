@@ -258,6 +258,39 @@ class HostController extends ChangeNotifier {
   /// 探测到的 ffmpeg 路径（未找到为 null）。
   String? ffmpegPath;
 
+  /// ffmpeg 一键安装状态（#25 去沙盒后内置安装）。
+  bool ffmpegInstalling = false;
+
+  /// 下载百分比（0-100；无进度阶段为 null）。
+  double? ffmpegInstallPercent;
+
+  /// 最近一行安装输出（日志展示）。
+  String ffmpegInstallLine = '';
+
+  /// 内置安装 ffmpeg：经 Homebrew 执行 brew install ffmpeg，
+  /// 解析输出驱动进度条；完成后自动重新探测编码能力。
+  Future<void> installFfmpeg() => _run('安装 ffmpeg', () async {
+    final brew = await const FfmpegInstaller().findBrew();
+    if (!brew.available) {
+      throw StateError('未找到 Homebrew：请先安装 brew（https://brew.sh）');
+    }
+    ffmpegInstalling = true;
+    ffmpegInstallPercent = null;
+    ffmpegInstallLine = '';
+    notifyListeners();
+    try {
+      await for (final progress
+          in const FfmpegInstaller().install(brew.path!)) {
+        ffmpegInstallPercent = progress.percent;
+        ffmpegInstallLine = progress.line;
+        notifyListeners();
+      }
+    } finally {
+      ffmpegInstalling = false;
+    }
+    await refreshVideoCapabilities();
+  });
+
   /// 探测 ffmpeg 与各编码器可用性（编译级；硬编实际可用性以会话
   /// 启动时的 2s 探测回退为准）。
   Future<void> refreshVideoCapabilities() async {

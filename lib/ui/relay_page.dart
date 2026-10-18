@@ -424,24 +424,47 @@ class _VideoCapsCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (ffmpegPath == null)
+          if (ffmpegPath == null) ...[
             Row(
               children: [
                 Expanded(
                   child: Text(
-                    '未找到 ffmpeg，视频流模式不可用。安装：brew install ffmpeg',
+                    '未找到 ffmpeg，视频流模式不可用。',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: statusToneColor(context, StatusTone.warning),
                     ),
                   ),
                 ),
-                // 沙盒内无法替用户执行 brew——提供一键复制命令（#25）
+                // 去沙盒后内置安装（#25）：brew install ffmpeg 带进度
+                FilledButton(
+                  onPressed: controller.ffmpegInstalling
+                      ? null
+                      : () => controller.installFfmpeg(),
+                  child: const Text('一键安装'),
+                ),
+                const SizedBox(width: 8),
                 CopyButton(
                   text: 'brew install ffmpeg',
                   label: '安装命令',
                 ),
               ],
-            )
+            ),
+            if (controller.ffmpegInstalling) ...[
+              const SizedBox(height: 8),
+              LinearProgressIndicator(
+                value: controller.ffmpegInstallPercent != null
+                    ? controller.ffmpegInstallPercent! / 100
+                    : null,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                controller.ffmpegInstallLine,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ]
           else ...[
             for (final cap in caps)
               Padding(

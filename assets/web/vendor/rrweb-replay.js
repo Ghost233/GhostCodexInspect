@@ -4063,11 +4063,20 @@ function buildNode(n2, options) {
           ((_a2 = doc.defaultView) == null ? void 0 : _a2.customElements) && // If the custom element hasn't been defined yet
           !doc.defaultView.customElements.get(n2.tagName)
         )
-          doc.defaultView.customElements.define(
-            n2.tagName,
-            class extends doc.defaultView.HTMLElement {
+          // GhostCodexInspect 补丁：非法自定义元素名（如 Electron <webview>）
+          // 会抛 SyntaxError 并中断整棵 DOM 重建；跳过 define 继续，元素仍以
+          // 普通元素重建（只读重绘足够，webview 内嵌内容本就跨域不可采）。
+          try {
+            doc.defaultView.customElements.define(
+              n2.tagName,
+              class extends doc.defaultView.HTMLElement {
+              }
+            );
+          } catch (_defineErr) {
+            if (typeof console !== "undefined" && console.warn) {
+              console.warn("[gci] customElements.define 跳过:", n2.tagName);
             }
-          );
+          }
         node2 = doc.createElement(tagName);
       }
       const specialAttributes = {};

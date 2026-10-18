@@ -10,6 +10,7 @@
 - **取用日期**：2026-10-17
 - **构建形式**：官方单文件 ESM 构建，`export { Replayer }`，浏览器直接 `import { Replayer } from './vendor/rrweb-replay.js'` 可用。
 - **用途**：DOM 重绘模式下用 `Replayer` 的 `liveMode: true` + `startLive()` 在 sandboxed iframe 中重建目标应用 DOM，逐条 `addEvent()` 接收增量事件（方案见 docs/research/dom-replay.md §2、§3.1）。
+- **本地补丁（2026-10-18，真机 ChatGPT.app 实测）**：`buildNode` 中 `customElements.define(n2.tagName, ...)` 包了 try/catch——目标 shell 页面的 `<webview>` 元素被记录侧标记为 `is_custom`，但 `"webview"` 不是合法自定义元素名，define 抛 `SyntaxError` 会中断整棵 DOM 重建。补丁跳过 define 继续重建（元素以普通元素渲染，webview 内嵌内容本就跨域不可采）。**更新版本时需重新套用此补丁**（检索锚点：`GhostCodexInspect 补丁`）。
 
 ## rrweb-record.js
 

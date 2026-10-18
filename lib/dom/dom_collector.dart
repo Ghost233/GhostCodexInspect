@@ -29,18 +29,31 @@ const int kEventTypeFullSnapshot = 2;
 const int kEventTypeIncremental = 3;
 const int kEventTypeMeta = 4;
 
-/// 采集 glue：微批聚合 + binding 回传 + resync 入口。
+/// 采集 glue：微批聚合 + binding 回传 + resync 入口 + 生命周期令牌。
 ///
 /// 约束：注入为经典脚本（非 module），不得使用 import/export；
-/// 依赖拼接在前的 recorder 源码提供顶层 `record` 绑定。
+/// 依赖拼接在前的 recorder 源码提供同作用域的 `record` 绑定。
+///
+/// 守卫设计（2026-10-18 真机 stale 守卫事故）：
+/// - 健康重复注入（同文档重复 evaluate）：`__gciCollector.alive` 为真 → 早退；
+/// - 健康旧版（v1，无令牌但有 resync 句柄）→ 早退，避免双采集器；
+/// - 陈旧/残缺安装（布尔标志为真但无令牌无 resync，或令牌 stop 可用）：
+///   能停则停后重装——真机页面曾被探针/异常死亡会话留下
+///   `__gciCollectorInstalled=true` 而无活动采集器，裸布尔守卫会永久卡死。
+/// - `stop()` 句柄让宿主正常停止时页面侧零残留（v1 丢弃了 record 的
+///   stop 返回值，采集器只能等页面导航才停）。
 const String kCollectorGlue = r'''
 ;(function () {
-  if (window.__gciCollectorInstalled) return;
-  window.__gciCollectorInstalled = true;
+  var prev = window.__gciCollector;
+  if (prev && prev.alive) return;
+  if (!prev && window.__gciCollectorInstalled &&
+      typeof window.__gciResync === 'function') return;
+  if (prev && typeof prev.stop === 'function') { try { prev.stop(); } catch (e) {} }
   var BUF = [];
   var FLUSH_TIMER = null;
   var FLUSH_MS = 150;
   var MAX_BATCH = 200;
+  var STOP = null;
   function flush() {
     if (FLUSH_TIMER) { clearTimeout(FLUSH_TIMER); FLUSH_TIMER = null; }
     if (!BUF.length) return;
@@ -69,17 +82,31 @@ const String kCollectorGlue = r'''
     };
   }
   function start() {
-    record({
-      emit: function (ev) { BUF.push(ev); schedule(); },
-      // 周期性全量快照兜底（长时间增量链断裂自愈）
-      checkoutEveryNms: 60000,
-    });
+    try {
+      STOP = record({
+        emit: function (ev) { BUF.push(ev); schedule(); },
+        // 周期性全量快照兜底（长时间增量链断裂自愈）
+        checkoutEveryNms: 60000,
+      });
+    } catch (e) { /* record 不可用（注入残缺）时保持未启动 */ }
   }
-  window.__gciResync = function () {
-    BUF.push(metaEvent());
-    try { record.takeFullSnapshot(false); } catch (e) { /* 未 start 时忽略 */ }
-    flush();
+  var api = {
+    alive: true,
+    resync: function () {
+      BUF.push(metaEvent());
+      try { record.takeFullSnapshot(false); } catch (e) { /* 未 start 时忽略 */ }
+      flush();
+    },
+    stop: function () {
+      if (!api.alive) return;
+      api.alive = false;
+      try { if (STOP) STOP(); } catch (e) {}
+      flush();
+    },
   };
+  window.__gciCollector = api;
+  window.__gciCollectorInstalled = true;
+  window.__gciResync = function () { api.resync(); };
   if (document.readyState === 'loading') {
     window.addEventListener('DOMContentLoaded', start);
   } else {
@@ -89,11 +116,19 @@ const String kCollectorGlue = r'''
 ''';
 
 /// 构建注入脚本源码：recorder ESM 源码剥掉 `export {...}` 行与行尾
-/// sourceMappingURL 注释行后拼接采集 glue。
+/// sourceMappingURL 注释行后拼接采集 glue，整体再包一层 IIFE。
 ///
 /// 两条剥离规则都锚定整行（`^...$`）：vendor 构建内有字符串字面量
 /// 内嵌 `\n//# sourceMappingURL=...`（canvas worker 源码字符串），非锚定的
 /// `\S*` 会把字符串收尾的 `';` 一并吃掉，造成未闭合字符串语法错误。
+///
+/// IIFE 包裹（2026-10-18 真机事故）：bundle 顶层是 `let/const` 声明，
+/// 作为经典脚本 evaluate 时会进入页面的全局词法环境且**永不回收**
+/// （stop 采集器清不掉）。真机主 shell 页面此前被 rrweb 干跑探针
+/// evaluate 过一次（real_machine_probe），再次注入同一份 bundle 即抛
+/// `SyntaxError: Identifier 'testableAccessors' has already been declared`。
+/// 包进 IIFE 后所有声明落在函数作用域，重复注入/导航重注入均幂等安全；
+/// glue 的幂等守卫是 `window.__gciCollectorInstalled`。
 String buildCollectorSource(String recorderSource) {
   final stripped = recorderSource
       .replaceAll(
@@ -104,7 +139,7 @@ String buildCollectorSource(String recorderSource) {
         RegExp(r'^[ \t]*//#[ \t]*sourceMappingURL=.*$', multiLine: true),
         '',
       );
-  return '$stripped\n$kCollectorGlue';
+  return ';(function () {\n$stripped\n$kCollectorGlue\n})();\n';
 }
 
 /// 从默认 vendor 路径读取 recorder 源码并构建注入脚本。

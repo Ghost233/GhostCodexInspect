@@ -117,7 +117,8 @@ class DomSession {
     await page.evaluate(source);
   }
 
-  /// 停止转发（不动目标页面与中转本身）。幂等。
+  /// 停止转发并做页面侧清理（best-effort）：停采集器、摘除全局句柄。
+  /// 页面已死/已导航时清理 evaluate 失败忽略。幂等。
   Future<void> stop() async {
     if (!_started) return;
     _started = false;
@@ -128,6 +129,17 @@ class DomSession {
     }
     if (relay.onClientAuthed == _onClientAuthed) {
       relay.onClientAuthed = null;
+    }
+    try {
+      await page.evaluate('(function(){'
+          'var c = window.__gciCollector;'
+          'if (c && typeof c.stop === "function") { try { c.stop(); } catch (e) {} }'
+          'try { delete window.__gciCollector; } catch (e) {}'
+          'try { delete window.$kResyncFunctionName; } catch (e) {}'
+          'window.__gciCollectorInstalled = false;'
+          '})()');
+    } catch (_) {
+      // 页面已不可达：CDP 会话死亡后注入与 binding 自动回收（实测），无需处理。
     }
   }
 

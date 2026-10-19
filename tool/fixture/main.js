@@ -11,7 +11,7 @@ app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
 
 function createWindow() {
-  const win = new BrowserWindow({ width: 720, height: 480 });
+  const win = new BrowserWindow({ width: 720, height: 480, show: false });
   win.loadFile('index.html');
 }
 
@@ -22,7 +22,7 @@ const openSecondWindow = process.argv.includes('--gci-second-window');
 app.whenReady().then(() => {
   createWindow();
   if (openSecondWindow) {
-    const second = new BrowserWindow({ width: 480, height: 320 });
+    const second = new BrowserWindow({ width: 480, height: 320, show: false });
     second.loadFile('second.html');
   }
   app.on('activate', () => {

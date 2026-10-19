@@ -74,11 +74,11 @@ enum VideoResolutionMode {
   /// 持久化标识（枚举名；只能追加不能重排）。
   String get wireTag => name;
 
-  /// 从持久化标识还原（未知值回落默认 twoThirds）。
+  /// 从持久化标识还原（未知值回落默认 original）。
   static VideoResolutionMode fromWireTag(String tag) =>
       VideoResolutionMode.values.firstWhere(
         (m) => m.name == tag,
-        orElse: () => VideoResolutionMode.twoThirds,
+        orElse: () => VideoResolutionMode.original,
       );
 
   /// 由实际视口宽度计算编码宽度上限（null=不限制）；取偶
@@ -107,7 +107,7 @@ class VideoSession {
     this.bitrateKbps = 2000,
     this.quality = 60,
     this.everyNthFrame = 2,
-    this.resolutionMode = VideoResolutionMode.twoThirds,
+    this.resolutionMode = VideoResolutionMode.original,
     this.onSwitchRequested,
     this.locator = const FfmpegLocator(),
   });

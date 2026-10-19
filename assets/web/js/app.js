@@ -46,23 +46,32 @@ const SIZE_MODE_KEY = 'gci.viewSizeMode';
 function setupSizeToggle(session, videoView) {
   const btn = $('size-toggle');
   if (!btn) return;
+  // 三态循环：自适应（等比内嵌）→ 拉伸填满（变形填舞台，2026-10-19
+  // 用户选择）→ 原始尺寸（1:1 滚动查看）
+  const MODES = ['fit', 'stretch', 'actual'];
+  const LABELS = { fit: '自适应', stretch: '拉伸填满', actual: '原始尺寸' };
+  const TITLES = {
+    fit: '等比缩放适配窗口（比例不符时留边），点击切换',
+    stretch: '拉伸填满舞台（画面会变形），点击切换',
+    actual: '按源视口原始尺寸显示（可滚动查看），点击切换',
+  };
   const apply = (mode) => {
     session.setSizeMode(mode);
     if (videoView) videoView.setSizeMode(mode);
-    btn.textContent = mode === 'actual' ? '原始尺寸' : '自适应';
-    btn.title = mode === 'actual'
-      ? '按源视口原始尺寸显示（可滚动查看），点击切换为自适应'
-      : '等比缩放适配窗口，点击切换为原始尺寸';
-    btn.setAttribute('aria-pressed', String(mode === 'actual'));
+    btn.textContent = LABELS[mode];
+    btn.title = TITLES[mode];
+    btn.setAttribute('aria-pressed', String(mode !== 'fit'));
   };
   btn.addEventListener('click', () => {
-    const next = session.sizeMode === 'actual' ? 'fit' : 'actual';
+    const next = MODES[(MODES.indexOf(session.sizeMode) + 1) % MODES.length];
     try { localStorage.setItem(SIZE_MODE_KEY, next); } catch { /* 隐私模式等忽略 */ }
     apply(next);
   });
   let stored = 'fit';
-  try { stored = localStorage.getItem(SIZE_MODE_KEY) === 'actual' ? 'actual' : 'fit'; }
-  catch { /* 忽略 */ }
+  try {
+    const v = localStorage.getItem(SIZE_MODE_KEY);
+    if (v && MODES.includes(v)) stored = v;
+  } catch { /* 忽略 */ }
   apply(stored);
 }
 

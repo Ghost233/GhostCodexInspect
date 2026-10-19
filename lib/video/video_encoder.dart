@@ -85,7 +85,7 @@ class FfmpegVideoEncoder {
     this.codec = VideoCodecKind.h264,
     this.kind = VideoEncoderKind.auto,
     this.bitrateKbps,
-    this.gopSize = 24,
+    this.gopSize = 12,
     this.nominalFps = 30,
   });
 
@@ -155,6 +155,9 @@ class FfmpegVideoEncoder {
       '-bf', '0', // 无 B 帧：一进一出，AU 切分与延迟都受益
       '-g', '$gopSize',
       if (bitrateKbps != null) ...['-b:v', '${bitrateKbps}k'],
+      // VT 硬编：realtime 提示实时编码（默认 false 会内部攒帧缓冲，
+      // 是远程端 1s+ 延迟的主因，2026-10-19 用户反馈）；prio_speed 优先速度
+      if (encoder != plan.swEncoder) ...['-realtime', '1', '-prio_speed', '1'],
       if (encoder == plan.swEncoder) ...plan.swArgs,
       '-flush_packets', '1', // 每包冲刷输出缓冲，保证实时性
       '-f', plan.outFormat,

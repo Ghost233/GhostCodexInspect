@@ -286,6 +286,15 @@ export class VideoView {
     const w = stage.clientWidth;
     const h = stage.clientHeight;
     if (!w || !h) return;
+    if (this.sizeMode === 'stretch') {
+      // 拉伸填满舞台：宽高各自缩放（画面变形，2026-10-19 用户选择）；
+      // 输入坐标换算按轴独立（_toSource 用 rect 宽高分别折算），不受影响
+      for (const el of [this.canvas, this.video]) {
+        el.style.width = w + 'px';
+        el.style.height = h + 'px';
+      }
+      return;
+    }
     const scale = computeScale(this.viewportWidth, this.viewportHeight, w, h);
     for (const el of [this.canvas, this.video]) {
       el.style.width = Math.round(this.viewportWidth * scale) + 'px';

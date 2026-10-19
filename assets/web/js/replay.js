@@ -46,6 +46,8 @@ export class DomReplaySession {
   /**
    * 切换视图尺寸模式（#17）：'fit' 等比缩放适配舞台；'actual' 原始尺寸
    * （iframe 按源视口 CSS px 平铺，宿主容器滚动查看，缩放系数为 1）。
+   * 'stretch' 回落为 fit：DOM 重绘不做非等比拉伸（iframe 非均匀缩放
+   * 会让输入坐标映射失真）。
    */
   setSizeMode(mode) {
     this.sizeMode = mode === 'actual' ? 'actual' : 'fit';

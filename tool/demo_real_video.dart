@@ -126,6 +126,10 @@ Future<void> main(List<String> args) async {
       'framesEncoded=${status.framesEncoded} ausSent=${status.ausSent} '
       'bytesSent=${status.bytesSent} lastError=${status.lastError}',
     );
+    // 截图存档（可视化验收：画布真实渲染内容）
+    await File('/tmp/gci-video-check.png')
+        .writeAsBytes(await remote.screenshot());
+    stdout.writeln('远程端截图：/tmp/gci-video-check.png');
     stdout.writeln(decoded ? '\n✅ 视频解码出帧正常' : '\n❌ 未解码出帧');
     if (!decoded) exitCode = 1;
   } on Object catch (e) {

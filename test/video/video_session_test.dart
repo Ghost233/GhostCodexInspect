@@ -123,9 +123,11 @@ void main() {
     for (final mode in VideoResolutionMode.values) {
       expect(VideoResolutionMode.fromWireTag(mode.wireTag), mode);
     }
+    // 未知持久化值回落默认（2026-10-19 起默认改为 original：
+    // 三分之二缩放上采样模糊的实测反馈）
     expect(
       VideoResolutionMode.fromWireTag('unknown'),
-      VideoResolutionMode.twoThirds,
+      VideoResolutionMode.original,
     );
   });
 

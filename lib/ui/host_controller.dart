@@ -296,7 +296,7 @@ class HostController extends ChangeNotifier {
   static const String _kVideoBitrateKbpsKey = 'gci.videoBitrateKbps';
 
   /// 编码分辨率模式（#27）：原始/按比例缩放/固定，由实际视口换算。
-  VideoResolutionMode videoResolutionMode = VideoResolutionMode.twoThirds;
+  VideoResolutionMode videoResolutionMode = VideoResolutionMode.original;
 
   /// 码率（kbps，1M–50M 滑条；#27）。
   int videoBitrateKbps = 2000;

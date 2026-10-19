@@ -19,9 +19,21 @@ check_analysis() {
 
 check_tests() {
   "$flutter_command" --suppress-analytics test --no-pub
-  # 远程端（assets/web）的 node 单测：有 node 就跑，没有不阻塞。
-  if command -v node >/dev/null 2>&1; then
-    (cd assets/web && node --test test/)
+  # 远程端（assets/web）的 node 单测：有可用 node 就跑，没有不阻塞。
+  # 注意两点坑（2026-10-19）：DSH 的 node shim 依赖会话内
+  # $DSH_DESKTOP_NODE_EXECUTABLE，裸 shell 里会 exec 空串；Node 24 起
+  # `node --test <目录>` 不再展开目录，必须传 glob。
+  local node_bin=""
+  if [ -n "${DSH_DESKTOP_NODE_EXECUTABLE:-}" ] && [ -x "${DSH_DESKTOP_NODE_EXECUTABLE}" ]; then
+    node_bin="$DSH_DESKTOP_NODE_EXECUTABLE"
+  elif command -v node >/dev/null 2>&1 && node --version >/dev/null 2>&1; then
+    node_bin="node"
+  else
+    local dsh_node="/Applications/DSH Workflow.app/Contents/Resources/desktop/DeepSeek Harness.app/Contents/Resources/runtime/primary-runtime/dependencies/node/bin/node"
+    [ -x "$dsh_node" ] && node_bin="$dsh_node"
+  fi
+  if [ -n "$node_bin" ]; then
+    (cd assets/web && "$node_bin" --test test/*.test.mjs)
   fi
 }
 

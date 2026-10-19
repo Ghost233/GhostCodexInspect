@@ -8,6 +8,7 @@
 library;
 
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -30,6 +31,8 @@ class VideoSessionStatus {
     required this.ausSent,
     required this.idrAusSent,
     required this.bytesSent,
+    this.encodeQueueDepth = 0,
+    this.lastFrameLatencyMs = 0,
     this.lastError,
   });
 
@@ -49,6 +52,13 @@ class VideoSessionStatus {
   /// 其中含 IDR 的 AU 数（关键帧节奏诊断）。
   final int idrAusSent;
   final int bytesSent;
+
+  /// 已喂编码器、尚未出 AU 的帧数（管线深度；持续增长 = 编码端积压，
+  /// 端到端延迟同步上涨——writeFrame 无背压的显形指标）。
+  final int encodeQueueDepth;
+
+  /// 最近一个 AU 的捕获→广播耗时（ms，CDP screencast 采集时刻起算）。
+  final double lastFrameLatencyMs;
   final String? lastError;
 }
 
@@ -107,6 +117,12 @@ class VideoSession {
   int _ausSent = 0;
   int _idrAusSent = 0;
   int _bytesSent = 0;
+
+  /// 已喂编码器但尚未出 AU 的帧的采集时刻（FIFO；-bf 0 无 B 帧重排，
+  /// 进出 1:1）。用于管线深度与捕获→发出延迟观测（2026-10-19 延迟回归
+  /// 排查：writeFrame 无背压，积压会在这两个指标上显形）。
+  final _captureTimes = Queue<double>();
+  double _lastFrameLatencyMs = 0;
   String? _lastError;
   final _firstAu = Completer<void>();
 
@@ -127,6 +143,8 @@ class VideoSession {
     ausSent: _ausSent,
     idrAusSent: _idrAusSent,
     bytesSent: _bytesSent,
+    encodeQueueDepth: _captureTimes.length,
+    lastFrameLatencyMs: _lastFrameLatencyMs,
     lastError: _lastError,
   );
 
@@ -150,6 +168,15 @@ class VideoSession {
     relay.onClientDisconnected = _handleClientDisconnected;
 
     await page.send('Page.enable');
+    // 清掉可能残留的历史视口覆盖：Electron 目标上 setDeviceMetricsOverride
+    // 会跨会话粘滞（宿主进程死亡后覆盖仍留在被控页面上，2026-10-19 实测
+    // Codex 页残留 1280x1024@1 覆盖）。若不清除，start 时 _readViewport
+    // 读到的是旧覆盖值，广播的 meta 就是错的起点。
+    try {
+      await clearViewportOverride(page);
+    } catch (_) {
+      // 页面刚启动/已死等场景下失败可忽略，读真实视口即可
+    }
     await _readViewport();
     await _broadcastVideoMeta();
     _active = true;
@@ -173,6 +200,18 @@ class VideoSession {
     if (!_active || _encoding || _resumeInFlight) return;
     _resumeInFlight = true;
     try {
+      // 解除后台/遮挡节流（2026-10-19 操作延迟回归根因）：被控窗口被
+      // 遮挡或最小化时 Chromium 合成器节流，visibility=hidden → 无
+      // BeginFrame → screencast 断流（真机实测 0 帧/10s），远程端表现为
+      // 操作延迟飙升。焦点仿真令页面按前台对待（实测恢复 ~45fps）。
+      // 观众走光时 _pauseEncoding 恢复。
+      try {
+        await page.send('Emulation.setFocusEmulationEnabled', {
+          'enabled': true,
+        });
+      } catch (_) {
+        // 旧版 Chromium 无此方法时忽略（节流照常，不阻塞会话）
+      }
       final encoder = FfmpegVideoEncoder(
         ffmpegPath: _ffmpegPath!,
         codec: codec,
@@ -218,6 +257,10 @@ class VideoSession {
     try {
       await page.send('Page.stopScreencast');
     } catch (_) {}
+    // 恢复页面焦点/节流状态（与 _resumeEncoding 的仿真配对）
+    try {
+      await page.send('Emulation.setFocusEmulationEnabled', {'enabled': false});
+    } catch (_) {}
     final encoder = _encoder;
     _encoder = null;
     await encoder?.stop();
@@ -241,10 +284,24 @@ class VideoSession {
     );
     _encoder?.writeFrame(base64Decode(frame.data));
     _framesEncoded++;
+    final captureTs = frame.metadata['timestamp'];
+    if (captureTs is num) {
+      _captureTimes.addLast(captureTs.toDouble());
+      // 编码器卡死时 AU 不再流出，队列只进不出——封顶防内存无界增长
+      // （饱和后 encodeQueueDepth 停在 256，仍是积压信号）。
+      while (_captureTimes.length > 256) {
+        _captureTimes.removeFirst();
+      }
+    }
   }
 
   void _onAccessUnit(Uint8List au) {
     _ausSent++;
+    if (_captureTimes.isNotEmpty) {
+      final ts = _captureTimes.removeFirst();
+      _lastFrameLatencyMs =
+          (DateTime.now().millisecondsSinceEpoch / 1000 - ts) * 1000;
+    }
     if (_isKeyframeAu(au)) _idrAusSent++;
     _bytesSent += au.length;
     if (!_firstAu.isCompleted) _firstAu.complete();

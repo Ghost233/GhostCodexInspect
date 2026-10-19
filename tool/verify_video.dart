@@ -188,15 +188,32 @@ Future<void> main() async {
       'window.__remote.videoView.viewportHeight',
     );
     final titleBefore = await page.evaluate('document.title');
+    // Phase B 点击前必须重读按钮位置：远程端连接后视口跟随
+    // （applyViewportOverride）会改变 fixture 视口，Phase A 捕获的
+    // cx/cy 已失效——坐标系必须与点击时刻的 meta 视口一致。
+    final btnRectBJson = await page.evaluate(
+      "JSON.stringify(document.getElementById('counter-btn').getBoundingClientRect())",
+    );
+    final btnRectB = jsonDecode(btnRectBJson as String) as Map<String, dynamic>;
+    final cxB = ((btnRectB['left'] as num) + (btnRectB['width'] as num) / 2)
+        .round();
+    final cyB = ((btnRectB['top'] as num) + (btnRectB['height'] as num) / 2)
+        .round();
     await remote.mouse.click(
       pp.Point(
-        (r['left'] as num) + (r['width'] as num) * (cx / (vw as num)),
-        (r['top'] as num) + (r['height'] as num) * (cy / (vh as num)),
+        (r['left'] as num) + (r['width'] as num) * (cxB / (vw as num)),
+        (r['top'] as num) + (r['height'] as num) * (cyB / (vh as num)),
       ),
     );
     await Future<void>.delayed(const Duration(milliseconds: 500));
     final titleAfter = await page.evaluate('document.title');
-    if (titleAfter == titleBefore) throw StateError('Phase B 点击未回灌');
+    if (titleAfter == titleBefore) {
+      final vp = await page.evaluate(
+        "JSON.stringify({iw: innerWidth, ih: innerHeight})",
+      );
+      log('   点击未回灌诊断：fixture vp=$vp btn=$btnRectB meta=$vw,$vh');
+      throw StateError('Phase B 点击未回灌');
+    }
     log('   Phase B 输入回灌 ✓');
 
     // 切 MSE 播放路径

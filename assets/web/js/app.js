@@ -45,16 +45,29 @@ function applyMode(mode) {
 let viewportSync = null; // () => void，main() 装配
 let currentSizeMode = 'fit'; // 尺寸切换三态循环的权威状态
 
-function setupViewportSync(client, session, readOnly) {
+function setupViewportSync(client, session, videoView, readOnly) {
   if (readOnly) return;
   let timer = null;
   const send = () => {
     if (session.sizeMode !== 'fit') return;
-    const pane = currentMode === 'video' ? $('stage-video') : $('stage-dom');
+    const video = currentMode === 'video';
+    const pane = $(video ? 'stage-video' : 'stage-dom');
     if (!pane || pane.classList.contains('hidden')) return;
     const w = Math.floor(pane.clientWidth);
     const h = Math.floor(pane.clientHeight);
-    if (w >= 64 && h >= 64) client.setViewport(w, h);
+    if (w < 64 || h < 64) return;
+    // 收敛判定：源视口已等于舞台则不发（防 meta→setViewport→meta
+    // 循环）。源尺寸取自宿主最近一次 meta——宿主会话重启后 meta 回到
+    // 旧视口，这里发现不一致即重发，视口重新跟随（2026-10-19 修复：
+    // 宿主重启/会话重建后远程页面不刷新时「固定尺寸」不再卡死）。
+    const srcW = video
+      ? (videoView ? videoView.viewportWidth : 0)
+      : (session.sourceWidth || 0);
+    const srcH = video
+      ? (videoView ? videoView.viewportHeight : 0)
+      : (session.sourceHeight || 0);
+    if (srcW === w && srcH === h) return;
+    client.setViewport(w, h);
   };
   viewportSync = () => {
     clearTimeout(timer);
@@ -332,6 +345,8 @@ function main() {
           const placeholder = $('stage-placeholder');
           if (placeholder) placeholder.classList.add('hidden');
         }
+        // meta 携带源视口：宿主会话重启后借此发现不一致并重发跟随
+        if (envelope.t === 'meta' && viewportSync) viewportSync();
       } else if (envelope.ch === 'video') {
         // #22 视频流：videoMeta/videoFrame（v2 二进制 payload 为 Uint8Array）
         applyMode('video'); // 模式跟随宿主会话
@@ -341,6 +356,8 @@ function main() {
           const placeholder = $('video-placeholder');
           if (placeholder) placeholder.classList.add('hidden');
         }
+        // videoMeta 携带源视口：同上，不一致则重发 setViewport 收敛
+        if (envelope.t === 'videoMeta' && viewportSync) viewportSync();
       } else if (envelope.ch === 'ctrl' && envelope.t === 'shells') {
         // #16：shell 页签栏；点击切换时先复位三个视图，再请求宿主重建会话
         renderShellTabs(envelope.data, client, () => {
@@ -372,7 +389,7 @@ function main() {
   // #17：视图尺寸模式切换（自适应/原始尺寸，双模式同步）+ 新鲜度指示
   setupSizeToggle(session, videoView);
   // 自适应视口跟随：舞台尺寸回传宿主覆盖目标页视口
-  setupViewportSync(client, session, readOnly);
+  setupViewportSync(client, session, videoView, readOnly);
   setInterval(updateFreshness, 250);
 
   // 中转不可达（如本地静态伺服预览）属预期：页面显示「未连接」并自动重连

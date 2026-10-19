@@ -123,6 +123,13 @@ class DomSession {
     //    覆盖未来导航。
     final source = collectorSource ?? await loadCollectorSource();
     await page.send('Page.enable');
+    // 清掉可能残留的历史视口覆盖（Electron 目标上覆盖跨会话粘滞，
+    // 见 VideoSession.start 同款处理），保证首份 meta/full 携带真实视口。
+    try {
+      await clearViewportOverride(page);
+    } catch (_) {
+      // 页面刚启动/已死等场景下失败可忽略
+    }
     // 文件对话框拦截守卫（#20）：原生文件框拦下，远程端提示回本机。
     _fileChooserGuard = FileChooserGuard(page: page, relay: relay);
     await _fileChooserGuard!.start();
@@ -130,6 +137,14 @@ class DomSession {
       'source': source,
     });
     await page.evaluate(source);
+    // 解除后台/遮挡节流：远程会话存续期间被控应用按前台对待（窗口被
+    // 遮挡时 JS 定时器被压到 1Hz、rAF 停摆，远程操作响应迟缓；与
+    // VideoSession._resumeEncoding 同款处理，实测可恢复全速）。
+    try {
+      await page.send('Emulation.setFocusEmulationEnabled', {'enabled': true});
+    } catch (_) {
+      // 旧版 Chromium 无此方法时忽略
+    }
   }
 
   /// 停止转发并做页面侧清理（best-effort）：停采集器、摘除全局句柄。
@@ -155,6 +170,10 @@ class DomSession {
     }
     await _fileChooserGuard?.stop();
     _fileChooserGuard = null;
+    // 恢复页面焦点/节流状态（与 start 的仿真配对）
+    try {
+      await page.send('Emulation.setFocusEmulationEnabled', {'enabled': false});
+    } catch (_) {}
     try {
       await page.evaluate(
         '(function(){'

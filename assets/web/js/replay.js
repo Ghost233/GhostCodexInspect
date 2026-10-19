@@ -43,6 +43,16 @@ export class DomReplaySession {
     }
   }
 
+  /** 源视口宽（CSS px，来自最近一条 meta；未知为 0）。视口跟随收敛判定用。 */
+  get sourceWidth() {
+    return this._metaEvent && this._metaEvent.data ? (this._metaEvent.data.width || 0) : 0;
+  }
+
+  /** 源视口高（CSS px，来自最近一条 meta；未知为 0）。 */
+  get sourceHeight() {
+    return this._metaEvent && this._metaEvent.data ? (this._metaEvent.data.height || 0) : 0;
+  }
+
   /**
    * 切换视图尺寸模式（#17）：'fit' 等比缩放适配舞台；'actual' 原始尺寸
    * （iframe 按源视口 CSS px 平铺，宿主容器滚动查看，缩放系数为 1）。

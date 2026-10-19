@@ -216,7 +216,15 @@ body {
   outline: none; /* 聚焦态不画焦点环，画面保持纯净 */
 }
 
+/* 占位提示：绝对定位盖在整个窗格中央（视频/DOM 两模式一致），
+   不再作为 flex 行内项挤在左边（2026-10-19 用户反馈） */
 .stage-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   text-align: center;
   color: var(--text-secondary);
 }

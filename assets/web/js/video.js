@@ -303,8 +303,9 @@ export class VideoView {
       }
       this.viewportWidth = meta.viewportWidth || 0;
       this.viewportHeight = meta.viewportHeight || 0;
-      this.canvas.width = this.viewportWidth;
-      this.canvas.height = this.viewportHeight;
+      // 注意：canvas 后备尺寸不再随 meta 设置——编码帧可能被
+      // 分辨率模式缩放（#27），后备尺寸以实际解码帧为准（见
+      // WebCodecs output），CSS 显示尺寸仍按 meta 视口比例布局。
       this._fit();
       this.host.classList.add('has-frame-pending');
       return;
@@ -388,6 +389,14 @@ export class VideoView {
         this._engine = 'webcodecs';
         this._decoder = new VideoDecoder({
           output: (frame) => {
+            // 后备尺寸跟随真实解码帧（编码侧可能按分辨率模式缩放），
+            // drawImage 才能整幅填满不拉伸、不留旧内容（2026-10-19
+            // 用户反馈：画面「突然过大/小一圈」）。
+            if (this.canvas.width !== frame.displayWidth ||
+                this.canvas.height !== frame.displayHeight) {
+              this.canvas.width = frame.displayWidth;
+              this.canvas.height = frame.displayHeight;
+            }
             const ctx = this.canvas.getContext('2d');
             ctx.drawImage(frame, 0, 0);
             frame.close();

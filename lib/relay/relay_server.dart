@@ -138,8 +138,7 @@ class RelayServer {
   int get clientCount => _clients.length;
 
   /// 当前已鉴权远程端数（#27「无人观看不编码」的判定基准）。
-  int get authedClientCount =>
-      _clients.values.where((c) => c.isAuthed).length;
+  int get authedClientCount => _clients.values.where((c) => c.isAuthed).length;
 
   /// 当前远程端连接列表（中转台 UI 用）。
   List<RelayClientInfo> get clients => [

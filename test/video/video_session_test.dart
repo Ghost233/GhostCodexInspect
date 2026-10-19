@@ -73,10 +73,7 @@ void main() {
   const locator = FfmpegLocator();
 
   /// 轮询直到条件满足（真实异步等待，超时抛错）。
-  Future<void> waitFor(
-    bool Function() cond, {
-    int timeoutSeconds = 5,
-  }) async {
+  Future<void> waitFor(bool Function() cond, {int timeoutSeconds = 5}) async {
     final deadline = DateTime.now().add(Duration(seconds: timeoutSeconds));
     while (!cond()) {
       if (DateTime.now().isAfter(deadline)) {
@@ -255,29 +252,29 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 300));
     expect(session.status.framesEncoded, 0);
     expect(session.status.encoder, isNull);
-    expect(
-      page.sent.where((c) => c.$1 == 'Page.startScreencast'),
-      isEmpty,
-    );
+    expect(page.sent.where((c) => c.$1 == 'Page.startScreencast'), isEmpty);
 
     // 首个观众接入 → 编码启动
     final (ws, stream) = await connectAuthed(relay);
     expect(session.status.viewers, 1);
     await waitFor(() => session.status.encoding, timeoutSeconds: 10);
     expect(session.status.encoder, isNotNull);
-    expect(
-      page.sent.where((c) => c.$1 == 'Page.startScreencast'),
-      isNotEmpty,
-    );
+    expect(page.sent.where((c) => c.$1 == 'Page.startScreencast'), isNotEmpty);
 
     // 喂帧确认真的在编码（生成 1 张真实小 JPEG 复用）
     final one = await Process.run(lookup.path!, [
-      '-v', 'error',
-      '-f', 'lavfi',
-      '-i', 'testsrc2=size=64x64:rate=1,format=yuv420p',
-      '-frames:v', '1',
-      '-f', 'image2pipe',
-      '-vcodec', 'mjpeg',
+      '-v',
+      'error',
+      '-f',
+      'lavfi',
+      '-i',
+      'testsrc2=size=64x64:rate=1,format=yuv420p',
+      '-frames:v',
+      '1',
+      '-f',
+      'image2pipe',
+      '-vcodec',
+      'mjpeg',
       '-',
     ], stdoutEncoding: null);
     final tinyJpeg = base64Encode(one.stdout as List<int>);
@@ -287,20 +284,14 @@ void main() {
       );
     }
     await waitFor(() => session.status.framesEncoded >= 3);
-    expect(
-      page.sent.where((c) => c.$1 == 'Page.screencastFrameAck').length,
-      3,
-    );
+    expect(page.sent.where((c) => c.$1 == 'Page.screencastFrameAck').length, 3);
 
     // 观众离开 → 编码暂停（stopScreencast 下发、编码器回收）
     await ws.sink.close();
     await waitFor(() => !session.status.encoding, timeoutSeconds: 10);
     expect(session.status.viewers, 0);
     expect(session.status.encoder, isNull);
-    expect(
-      page.sent.where((c) => c.$1 == 'Page.stopScreencast'),
-      isNotEmpty,
-    );
+    expect(page.sent.where((c) => c.$1 == 'Page.stopScreencast'), isNotEmpty);
 
     // 再次接入 → 编码恢复（重启编码器与 screencast）
     final (ws2, stream2) = await connectAuthed(relay);

@@ -34,7 +34,15 @@ Future<(int, int)> sample(CdpPage page, String label) async {
   return (frames, bytes);
 }
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
+  // --format=jpeg|png（默认 jpeg）、--quality=N（默认 60）
+  final fmtArg =
+      args.firstWhere((a) => a.startsWith('--format='), orElse: () => '');
+  final format = fmtArg.isEmpty ? 'jpeg' : fmtArg.split('=').last;
+  final qArg =
+      args.firstWhere((a) => a.startsWith('--quality='), orElse: () => '');
+  final quality = qArg.isEmpty ? 60 : int.parse(qArg.split('=').last);
+  stdout.writeln('格式：$format，quality：$quality');
   final connection = await connectCdp(debugPort: debugPort);
   final targets = await connection.client.listTargets();
   final shells = targets
@@ -50,8 +58,8 @@ Future<void> main() async {
   try {
     await page.send('Page.enable');
     await page.send('Page.startScreencast', {
-      'format': 'jpeg',
-      'quality': 60,
+      'format': format,
+      'quality': quality,
       'everyNthFrame': 1,
     });
 

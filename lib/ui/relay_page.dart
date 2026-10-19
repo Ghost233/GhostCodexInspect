@@ -261,15 +261,6 @@ class _SessionCard extends StatelessWidget {
                 ],
                 onChanged: (v) => controller.setVideoEncoderKind(v),
               ),
-              _VideoSettingDropdown<VideoResolutionMode>(
-                label: '编码分辨率',
-                value: controller.videoResolutionMode,
-                items: [
-                  for (final mode in VideoResolutionMode.values)
-                    (mode, mode.label),
-                ],
-                onChanged: (v) => controller.setVideoResolutionMode(v),
-              ),
               _BitrateSlider(controller: controller),
             ],
           ),

@@ -52,48 +52,6 @@ class VideoSessionStatus {
   final String? lastError;
 }
 
-/// 编码分辨率模式（#27）：由实际视口宽度换算 startScreencast 的
-/// maxWidth（即编码分辨率上限）。
-enum VideoResolutionMode {
-  /// 跟随视口原始分辨率（不缩放）。
-  original('原始（跟随视口）'),
-
-  /// 视口的 2/3（如 1920×1090 视口 → 1280×720 编码）。
-  twoThirds('视口的 2/3'),
-
-  /// 视口的 1/2。
-  half('视口的 1/2'),
-
-  /// 固定 1280 宽。
-  fixed1280('固定 1280 宽');
-
-  const VideoResolutionMode(this.label);
-
-  /// 展示文案。
-  final String label;
-
-  /// 持久化标识（枚举名；只能追加不能重排）。
-  String get wireTag => name;
-
-  /// 从持久化标识还原（未知值回落默认 original）。
-  static VideoResolutionMode fromWireTag(String tag) =>
-      VideoResolutionMode.values.firstWhere(
-        (m) => m.name == tag,
-        orElse: () => VideoResolutionMode.original,
-      );
-
-  /// 由实际视口宽度计算编码宽度上限（null=不限制）；取偶
-  /// （yuv420p 编码要求偶数尺寸）。
-  int? maxWidthFor(int viewportWidth) => switch (this) {
-    VideoResolutionMode.original => null,
-    VideoResolutionMode.twoThirds => _even(viewportWidth * 2 ~/ 3),
-    VideoResolutionMode.half => _even(viewportWidth ~/ 2),
-    VideoResolutionMode.fixed1280 => 1280,
-  };
-
-  static int _even(int v) => v.isEven ? v : v - 1;
-}
-
 /// 视频流会话。
 ///
 /// #27：无已鉴权观众时不编码——会话 start 后只挂控制面（输入/页签切换
@@ -111,7 +69,6 @@ class VideoSession {
     // 带宽充足，默认 90
     this.quality = 90,
     this.everyNthFrame = 2,
-    this.resolutionMode = VideoResolutionMode.original,
     this.onSwitchRequested,
     this.locator = const FfmpegLocator(),
   });
@@ -128,8 +85,6 @@ class VideoSession {
   final int quality;
   final int everyNthFrame;
 
-  /// 编码分辨率模式（#27）：由实际视口换算 maxWidth。
-  final VideoResolutionMode resolutionMode;
 
   /// #16：远程端请求切换 shell 页面时回调（宿主重建会话）。
   final void Function(String targetId)? onSwitchRequested;
@@ -231,7 +186,6 @@ class VideoSession {
         _onAccessUnit,
         onError: (Object e) => _lastError = '$e',
       );
-      final maxWidth = resolutionMode.maxWidthFor(_viewportWidth);
       // 帧订阅必须先于 startScreencast：期间到达的帧若漏 ack，
       // CDP 流控会停发后续帧（2026-10-19 间歇性帧停滞的根因）
       _frameSub = page.screencastFrames.listen(
@@ -242,7 +196,6 @@ class VideoSession {
         'format': 'jpeg',
         'quality': quality,
         'everyNthFrame': everyNthFrame,
-        'maxWidth': ?maxWidth,
       });
       _encoding = true;
       // encoder 名此时才确定，重发 meta 让远程端看到真实编码器

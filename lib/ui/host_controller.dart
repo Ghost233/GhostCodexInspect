@@ -160,10 +160,6 @@ class HostController extends ChangeNotifier {
         (relayPort == 0 || (relayPort >= 1024 && relayPort <= 65535))) {
       _relayPort = relayPort;
     }
-    final modeTag = prefs.getString(_kVideoResolutionModeKey);
-    if (modeTag != null) {
-      videoResolutionMode = VideoResolutionMode.fromWireTag(modeTag);
-    }
     final kbps = prefs.getInt(_kVideoBitrateKbpsKey);
     if (kbps != null && kbps >= 1000 && kbps <= 50000) {
       videoBitrateKbps = kbps;
@@ -292,11 +288,7 @@ class HostController extends ChangeNotifier {
   VideoCodecKind videoCodec = VideoCodecKind.h264;
   VideoEncoderKind videoEncoderKind = VideoEncoderKind.auto;
 
-  static const String _kVideoResolutionModeKey = 'gci.videoResolutionMode';
   static const String _kVideoBitrateKbpsKey = 'gci.videoBitrateKbps';
-
-  /// 编码分辨率模式（#27）：原始/按比例缩放/固定，由实际视口换算。
-  VideoResolutionMode videoResolutionMode = VideoResolutionMode.original;
 
   /// 码率（kbps，1M–50M 滑条；#27）。
   int videoBitrateKbps = 2000;
@@ -309,13 +301,6 @@ class HostController extends ChangeNotifier {
   void setVideoEncoderKind(VideoEncoderKind v) {
     videoEncoderKind = v;
     notifyListeners();
-  }
-
-  Future<void> setVideoResolutionMode(VideoResolutionMode v) async {
-    videoResolutionMode = v;
-    notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kVideoResolutionModeKey, v.wireTag);
   }
 
   Future<void> setVideoBitrateKbps(int kbps) async {
@@ -455,7 +440,6 @@ class HostController extends ChangeNotifier {
                 relay: relay,
                 codec: videoCodec,
                 encoderKind: videoEncoderKind,
-                resolutionMode: videoResolutionMode,
                 bitrateKbps: videoBitrateKbps,
                 onSwitchRequested: handleSwitch,
               );

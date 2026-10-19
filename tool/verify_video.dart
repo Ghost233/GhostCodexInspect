@@ -102,7 +102,7 @@ Future<void> main() async {
 
     // 画面要有变化才会出帧：启动 fixture 动画
     await page.evaluate(
-      "setInterval(() => { document.body.style.filter = document.body.style.filter ? '' : 'invert(1)'; }, 100)",
+      "(function __gciBlink(){ if (!document.body) { setTimeout(__gciBlink, 50); return; } setInterval(() => { document.body.style.filter = document.body.style.filter ? '' : 'invert(1)'; }, 100); })()",
     );
     // VT 内部缓冲大（调试实测约 46 帧才放行首批 AU），放宽等待窗口
     final auDeadline = DateTime.now().add(const Duration(seconds: 40));

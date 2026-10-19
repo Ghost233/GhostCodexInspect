@@ -111,26 +111,6 @@ void main() {
     return (ws, stream);
   }
 
-  test('编码分辨率模式：由视口换算 maxWidth（取偶）', () {
-    // 用户实例（#27）：1920×1090 视口 → 2/3 = 1280×720 编码
-    expect(VideoResolutionMode.twoThirds.maxWidthFor(1920), 1280);
-    expect(VideoResolutionMode.half.maxWidthFor(1920), 960);
-    expect(VideoResolutionMode.original.maxWidthFor(1920), isNull);
-    expect(VideoResolutionMode.fixed1280.maxWidthFor(1920), 1280);
-    // 奇数视口取偶
-    expect(VideoResolutionMode.twoThirds.maxWidthFor(1921), 1280);
-    // 持久化往返
-    for (final mode in VideoResolutionMode.values) {
-      expect(VideoResolutionMode.fromWireTag(mode.wireTag), mode);
-    }
-    // 未知持久化值回落默认（2026-10-19 起默认改为 original：
-    // 三分之二缩放上采样模糊的实测反馈）
-    expect(
-      VideoResolutionMode.fromWireTag('unknown'),
-      VideoResolutionMode.original,
-    );
-  });
-
   test('VideoSession：真 ffmpeg 编码链路，meta + AU 信封广播、stop 幂等', () async {
     final lookup = await locator.find();
     if (!lookup.available) return; // 无 ffmpeg 的机器跳过

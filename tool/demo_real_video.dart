@@ -58,9 +58,11 @@ Future<void> main(List<String> args) async {
     await session.start();
 
     step('3/4 headless Chrome 打开远程端切视频流模式');
+    // --headed：用有头 Chrome（真实 GPU 路径）验证——headless 走软件渲染，
+    // 硬件解码行为与用户浏览器不同（2026-10-19 h265 黑屏排查）。
     browser = await pp.puppeteer.launch(
       executablePath: chromePath,
-      headless: true,
+      headless: !args.contains('--headed'),
     );
     final remote = await browser.newPage();
     await remote.goto('${relay.accessUrl}', wait: pp.Until.load);

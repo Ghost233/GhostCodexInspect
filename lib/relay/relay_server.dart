@@ -248,7 +248,7 @@ class RelayServer {
       defaultDocument: 'index.html',
     );
     final wsHandler = webSocketHandler(_onWebSocketConnect);
-    return (Request request) {
+    return (Request request) async {
       if (request.url.path == wsPath) {
         // 纵深防御：防 DNS rebinding 借浏览器跨站页面打回环服务。
         final rejectReason = checkWebSocketHeaders(
@@ -265,7 +265,11 @@ class RelayServer {
         return wsHandler(request);
       }
       // 静态伺服只服务 assets/web 内已知路径，shelf_static 已防目录遍历。
-      return staticHandler(request);
+      // cache-control: no-cache 强制浏览器每次回源校验（配合 etag 仍 304），
+      // 避免启发式缓存把旧版 JS 留在远程端——2026-10-19 事故：旧 video.js
+      // 只支持 H.264 编码头，导致切 H.265 后黑屏。
+      final response = await staticHandler(request);
+      return response.change(headers: {'cache-control': 'no-cache'});
     };
   }
 

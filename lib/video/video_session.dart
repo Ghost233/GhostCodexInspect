@@ -106,7 +106,10 @@ class VideoSession {
     this.codec = VideoCodecKind.h264,
     this.encoderKind = VideoEncoderKind.auto,
     this.bitrateKbps = 2000,
-    this.quality = 60,
+    // screencast 截帧的 JPEG 质量。q60 的文字振铃噪点会被后续视频编码
+    // 忠实保留（2026-10-19 用户实测 20Mbps 仍模糊的根因）；本机/局域网
+    // 带宽充足，默认 90
+    this.quality = 90,
     this.everyNthFrame = 2,
     this.resolutionMode = VideoResolutionMode.original,
     this.onSwitchRequested,
@@ -120,6 +123,8 @@ class VideoSession {
 
   /// 码率（kbps）。
   final int bitrateKbps;
+
+  /// screencast 截帧 JPEG 质量（见构造器注释）。
   final int quality;
   final int everyNthFrame;
 

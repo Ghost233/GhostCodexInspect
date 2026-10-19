@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'sdk/native_window.dart';
 import 'ui/home_shell.dart';
 import 'ui/host_controller.dart';
 import 'ui/theme.dart';
@@ -32,6 +33,15 @@ class _GhostCodexInspectAppState extends State<GhostCodexInspectApp> {
   @override
   void initState() {
     super.initState();
+    // 菜单栏常驻后的优雅退出（参考 GhostModelDeck）：原生 terminate
+    // 前回调收尾——停中继会话与中转；best effort，不阻塞退出。
+    NativeWindowBridge.installQuitHandler(() async {
+      try {
+        await _controller.stopSession();
+        await _controller.stopRelay();
+      } catch (_) {}
+      return true;
+    });
     if (widget.autoConnect) {
       _controller.loadSettings().then((_) => _controller.connectSdk());
     }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:maclauncher_sdk/maclauncher_sdk.dart';
 
 import '../relay/relay.dart';
+import 'native_window.dart';
 
 /// MacLauncher 连接生命周期（工单 #7）。
 ///
@@ -63,6 +64,12 @@ class LauncherConnection {
           onRecycle: _recycleRelay,
         ),
       },
+      // 菜单栏联动（参考 GhostModelDeck）：启动器可请求打开主窗口；
+      // 被启动器托管时隐藏自有菜单栏入口（由启动器菜单栏统一呈现）。
+      app: AppCallbacks(
+        onOpenWindow: NativeWindowBridge.activateMainWindow,
+        onSetEntryManaged: NativeWindowBridge.setEntryManaged,
+      ),
     );
     _sdk = sdk;
     _stateSub = sdk.states.listen((status) {

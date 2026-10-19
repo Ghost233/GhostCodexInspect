@@ -12,6 +12,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:ghost_codex_inspect/cdp/cdp_client.dart';
+import 'package:ghost_codex_inspect/cdp/viewport_override.dart';
 import 'package:ghost_codex_inspect/dom/input_dispatcher.dart';
 import 'package:ghost_codex_inspect/relay/envelope.dart';
 import 'package:ghost_codex_inspect/relay/relay_server.dart';
@@ -139,6 +140,9 @@ class VideoSession {
   bool _encoding = false;
   bool _resumeInFlight = false;
   int _viewportWidth = 0;
+
+  /// 是否已对页面应用视口覆盖（stop 时据此恢复）。
+  bool _viewportOverridden = false;
   int _viewportHeight = 0;
   int _framesEncoded = 0;
   int _ausSent = 0;
@@ -223,16 +227,18 @@ class VideoSession {
         onError: (Object e) => _lastError = '$e',
       );
       final maxWidth = resolutionMode.maxWidthFor(_viewportWidth);
+      // 帧订阅必须先于 startScreencast：期间到达的帧若漏 ack，
+      // CDP 流控会停发后续帧（2026-10-19 间歇性帧停滞的根因）
+      _frameSub = page.screencastFrames.listen(
+        _onFrame,
+        onError: (Object e) => _lastError = '$e',
+      );
       await page.send('Page.startScreencast', {
         'format': 'jpeg',
         'quality': quality,
         'everyNthFrame': everyNthFrame,
         'maxWidth': ?maxWidth,
       });
-      _frameSub = page.screencastFrames.listen(
-        _onFrame,
-        onError: (Object e) => _lastError = '$e',
-      );
       _encoding = true;
       // encoder 名此时才确定，重发 meta 让远程端看到真实编码器
       await _broadcastVideoMeta();
@@ -379,6 +385,22 @@ class VideoSession {
       }
       return;
     }
+    // 远程端「自适应」视口跟随（2026-10-19）：覆盖目标页视口为远程
+    // 舞台尺寸，内容原生重排；之后重读视口并广播 meta
+    if (envelope.channel == RelayChannel.ctrl &&
+        envelope.type == RelayMessageType.setViewport) {
+      final size = parseViewportRequest(envelope.data);
+      if (size == null) return;
+      unawaited(() async {
+        await applyViewportOverride(page, size.width, size.height);
+        _viewportOverridden = true;
+        await _readViewport();
+        await _broadcastVideoMeta();
+      }().catchError((Object e) {
+          _lastError = '$e';
+        }));
+      return;
+    }
     if (envelope.channel != RelayChannel.input ||
         envelope.type != RelayMessageType.input) {
       return;
@@ -393,11 +415,19 @@ class VideoSession {
     );
   }
 
-  /// 停止（幂等）：停编码管线，归还中转回调。
+  /// 停止（幂等）：停编码管线，归还中转回调；恢复视口覆盖。
   Future<void> stop() async {
     if (!_active) return;
     _active = false;
     await _pauseEncoding();
+    if (_viewportOverridden) {
+      _viewportOverridden = false;
+      try {
+        await clearViewportOverride(page);
+      } catch (_) {
+        // 页面可能已断开；覆盖随 CDP 会话死亡自动回收
+      }
+    }
     if (relay.onClientMessage == _handleClientMessage) {
       relay.onClientMessage = null;
     }

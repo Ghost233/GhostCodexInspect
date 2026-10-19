@@ -381,8 +381,19 @@ Future<void> main() async {
     );
     stdout.writeln('IME 组合输入回灌生效（compositionend 文本到达 fixture）');
 
-    // ---- #17 验收②：视图尺寸模式切换。fit → actual（scale=1）→ fit。
-    await remotePage.click('#size-toggle');
+    // ---- #17 验收②：视图尺寸模式切换。三态循环（2026-10-19 拉伸填满
+    // 加入）：fit → stretch（DOM 回落 fit，无 .actual）→ actual（scale=1）
+    // → fit。
+    await remotePage.click('#size-toggle'); // fit → stretch
+    await _pollEvaluate(
+      remotePage.asCdpPageAdapter(),
+      "window.__remote.session.sizeMode === 'fit' && "
+      "document.getElementById('size-toggle').textContent === '拉伸填满'",
+      (v) => v == true,
+      what: '切到拉伸填满后 DOM 回落 fit 且按钮显示拉伸填满',
+    );
+    stdout.writeln('尺寸模式切换：自适应 → 拉伸填满（DOM 回落等比）');
+    await remotePage.click('#size-toggle'); // stretch → actual
     await _pollEvaluate(
       remotePage.asCdpPageAdapter(),
       'window.__remote.session.scale === 1 && '
@@ -390,8 +401,8 @@ Future<void> main() async {
       (v) => v == true,
       what: '切到原始尺寸后 scale 应为 1 且宿主带 .actual',
     );
-    stdout.writeln('尺寸模式切换：自适应 → 原始尺寸（scale=1）');
-    await remotePage.click('#size-toggle');
+    stdout.writeln('尺寸模式切换：拉伸填满 → 原始尺寸（scale=1）');
+    await remotePage.click('#size-toggle'); // actual → fit
     await _pollEvaluate(
       remotePage.asCdpPageAdapter(),
       '''

@@ -267,6 +267,69 @@ void main() {
     expect(switchRequests, ['shell-2']);
   });
 
+  test('远程端 ctrl setViewport 覆盖页面视口并触发全量快照（自适应跟随）', () async {
+    channel.sink.add(
+      RelayEnvelope(
+        channel: RelayChannel.ctrl,
+        type: RelayMessageType.setViewport,
+        seq: 6,
+        ts: 0,
+        data: {'width': 1600, 'height': 900},
+      ).encode(),
+    );
+    await _waitFor(
+      () => page.sent.any((c) => c.$1 == 'Emulation.setDeviceMetricsOverride'),
+    );
+    final call = page.sent
+        .firstWhere((c) => c.$1 == 'Emulation.setDeviceMetricsOverride');
+    expect(call.$2, {
+      'width': 1600,
+      'height': 900,
+      'deviceScaleFactor': 1,
+      'mobile': false,
+    });
+    // 覆盖后触发全量快照（远程端按新尺寸重建）
+    await _waitFor(
+      () => page.evaluated.any((e) => e.contains(kResyncFunctionName)),
+    );
+
+    // 非法尺寸（越界/非数字/缺字段）一律丢弃
+    final before = page.sent
+        .where((c) => c.$1 == 'Emulation.setDeviceMetricsOverride')
+        .length;
+    for (final bad in [
+      {'width': 1, 'height': 100},
+      {'width': 99999, 'height': 100},
+      {'width': 'x', 'height': 100},
+      {'width': 800},
+      'not-a-map',
+    ]) {
+      channel.sink.add(
+        RelayEnvelope(
+          channel: RelayChannel.ctrl,
+          type: RelayMessageType.setViewport,
+          seq: 7,
+          ts: 0,
+          data: bad,
+        ).encode(),
+      );
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    expect(
+      page.sent
+          .where((c) => c.$1 == 'Emulation.setDeviceMetricsOverride')
+          .length,
+      before,
+    );
+
+    // stop 恢复原视口
+    await session.stop();
+    expect(
+      page.sent.any((c) => c.$1 == 'Emulation.clearDeviceMetricsOverride'),
+      isTrue,
+    );
+  });
+
   test('远程端 ctrl resync 触发页面 __gciResync evaluate', () async {
     channel.sink.add(
       RelayEnvelope(

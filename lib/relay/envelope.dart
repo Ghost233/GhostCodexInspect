@@ -78,7 +78,12 @@ enum RelayMessageType {
 
   /// data = Annex B 访问单元（v2 二进制帧为原始字节，v1 文本帧为
   /// base64 字符串）（#22）。
-  videoFrame;
+  videoFrame,
+
+  /// data = {width, height}；远程端→宿主的目标页视口覆盖请求（ctrl 通道，
+  /// Emulation.setDeviceMetricsOverride；2026-10-19「Codex 内部分辨率
+  /// 跟随远程端自适应」需求）。只追加不重排（二进制 id=枚举序+1）。
+  setViewport;
 
   static RelayMessageType? tryParse(String name) =>
       RelayMessageType.values.asNameMap()[name];

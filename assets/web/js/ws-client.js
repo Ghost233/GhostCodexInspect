@@ -93,7 +93,7 @@ const CHANNEL_NAMES = ['dom', 'frame', 'input', 'ctrl', 'video'];
 const TYPE_NAMES = [
   'meta', 'full', 'inc', 'batch', 'resync', 'ping', 'pong',
   'auth', 'authOk', 'authErr', 'input', 'frame', 'shells', 'switchTarget',
-  'fileChooserHint', 'videoMeta', 'videoFrame',
+  'fileChooserHint', 'videoMeta', 'videoFrame', 'setViewport',
 ];
 
 /**
@@ -330,6 +330,16 @@ export class RelayClient {
    */
   switchTarget(targetId) {
     return this._send('ctrl', 'switchTarget', { targetId });
+  }
+
+  /**
+   * 请求宿主把目标页视口覆盖为远程舞台尺寸（ctrl 通道 setViewport，
+   * 2026-10-19「Codex 内部分辨率跟随远程端自适应」需求）。宿主用
+   * Emulation.setDeviceMetricsOverride 让页面按该尺寸重排；视频/DOM
+   * 会话随后广播新 meta。
+   */
+  setViewport(width, height) {
+    return this._send('ctrl', 'setViewport', { width, height });
   }
 
   _setState(state, detail) {

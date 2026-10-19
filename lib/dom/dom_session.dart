@@ -12,6 +12,7 @@ library;
 import 'dart:async';
 
 import '../cdp/cdp_client.dart';
+import '../cdp/viewport_override.dart';
 import '../relay/compression.dart';
 import '../relay/envelope.dart';
 import '../relay/relay_server.dart';
@@ -80,6 +81,8 @@ class DomSession {
   int _batchesReceived = 0;
   int _envelopesSent = 0;
   int _inputsDispatched = 0;
+  /// 是否已对页面应用视口覆盖（stop 时据此恢复）。
+  bool _viewportOverridden = false;
   bool _started = false;
 
   /// 首份全量快照到达时完成（验收与断线重连检测用）。
@@ -133,6 +136,14 @@ class DomSession {
   Future<void> stop() async {
     if (!_started) return;
     _started = false;
+    if (_viewportOverridden) {
+      _viewportOverridden = false;
+      try {
+        await clearViewportOverride(page);
+      } catch (_) {
+        // 页面可能已断开；覆盖随 CDP 会话死亡自动回收
+      }
+    }
     await _bindingSub?.cancel();
     _bindingSub = null;
     if (relay.onClientMessage == _onClientMessage) {
@@ -206,6 +217,18 @@ class DomSession {
           _ => null,
         };
         if (targetId != null) onSwitchRequested?.call(targetId);
+      case (RelayChannel.ctrl, RelayMessageType.setViewport):
+        // 远程端「自适应」视口跟随（2026-10-19）：覆盖目标页视口后
+        // 触发全量快照，远程端按新尺寸重建
+        final size = parseViewportRequest(envelope.data);
+        if (size == null) break;
+        unawaited(() async {
+          await applyViewportOverride(page, size.width, size.height);
+          _viewportOverridden = true;
+          await _resync();
+        }().catchError((Object e) {
+          _lastError = '$e';
+        }));
       case (RelayChannel.input, RelayMessageType.input):
         _dispatchClientInput(envelope.data);
       default:

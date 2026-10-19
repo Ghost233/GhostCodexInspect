@@ -33,6 +33,38 @@ function applyMode(mode) {
   const label = $('mode-label');
   if (label) label.textContent = MODE_LABELS[mode] || '等待会话…';
   updateFreshness(); // 切模式立即刷新指示（另一模式可能久无数据）
+  if (viewportSync) viewportSync(); // 新模式窗格尺寸回传宿主
+}
+
+/* ---------- 自适应视口跟随（2026-10-19 需求） ----------
+ * 「自适应」= Codex 页面内部视口跟随本浏览器舞台尺寸：ResizeObserver
+ * 监听舞台，防抖 300ms 后经 ctrl setViewport 回传宿主，宿主用
+ * Emulation.setDeviceMetricsOverride 让目标页按该尺寸原生重排。
+ * 只在 fit 尺寸模式下回传；只读预览（ro=1）不回传（多远端并存时
+ * 以操作端为准）。 */
+let viewportSync = null; // () => void，main() 装配
+let currentSizeMode = 'fit'; // 尺寸切换三态循环的权威状态
+
+function setupViewportSync(client, session, readOnly) {
+  if (readOnly) return;
+  let timer = null;
+  const send = () => {
+    if (session.sizeMode !== 'fit') return;
+    const pane = currentMode === 'video' ? $('stage-video') : $('stage-dom');
+    if (!pane || pane.classList.contains('hidden')) return;
+    const w = Math.floor(pane.clientWidth);
+    const h = Math.floor(pane.clientHeight);
+    if (w >= 64 && h >= 64) client.setViewport(w, h);
+  };
+  viewportSync = () => {
+    clearTimeout(timer);
+    timer = setTimeout(send, 300);
+  };
+  const observer = new ResizeObserver(() => viewportSync());
+  for (const id of ['stage-dom', 'stage-video']) {
+    const pane = $(id);
+    if (pane) observer.observe(pane);
+  }
 }
 
 /* ---------- 顶栏：视图尺寸模式切换（#17 问题 1） ---------- */
@@ -56,14 +88,17 @@ function setupSizeToggle(session, videoView) {
     actual: '按源视口原始尺寸显示（可滚动查看），点击切换',
   };
   const apply = (mode) => {
+    currentSizeMode = mode; // 循环基准：DOM 在 stretch 回落 fit，不能读 session.sizeMode
     session.setSizeMode(mode);
     if (videoView) videoView.setSizeMode(mode);
     btn.textContent = LABELS[mode];
     btn.title = TITLES[mode];
     btn.setAttribute('aria-pressed', String(mode !== 'fit'));
+    // 切回自适应时立即回传一次舞台尺寸（让目标页视口跟随重排）
+    if (mode === 'fit' && viewportSync) viewportSync();
   };
   btn.addEventListener('click', () => {
-    const next = MODES[(MODES.indexOf(session.sizeMode) + 1) % MODES.length];
+    const next = MODES[(MODES.indexOf(currentSizeMode) + 1) % MODES.length];
     try { localStorage.setItem(SIZE_MODE_KEY, next); } catch { /* 隐私模式等忽略 */ }
     apply(next);
   });
@@ -336,6 +371,8 @@ function main() {
 
   // #17：视图尺寸模式切换（自适应/原始尺寸，双模式同步）+ 新鲜度指示
   setupSizeToggle(session, videoView);
+  // 自适应视口跟随：舞台尺寸回传宿主覆盖目标页视口
+  setupViewportSync(client, session, readOnly);
   setInterval(updateFreshness, 250);
 
   // 中转不可达（如本地静态伺服预览）属预期：页面显示「未连接」并自动重连

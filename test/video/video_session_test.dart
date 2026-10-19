@@ -306,4 +306,72 @@ void main() {
     await stream.drain<void>();
     await stream2.drain<void>();
   }, timeout: const Timeout(Duration(seconds: 60)));
+
+  test('远程端 ctrl setViewport 覆盖页面视口并重发 meta（自适应跟随）',
+      () async {
+    final lookup = await locator.find();
+    if (!lookup.available) return; // 无 ffmpeg 的机器跳过
+
+    final relay = RelayServer(staticDir: 'assets/web');
+    await relay.start();
+    addTearDown(relay.stop);
+    final page = _FakeCdpPage();
+    final session = VideoSession(page: page, relay: relay, locator: locator);
+    await session.start();
+    addTearDown(session.stop);
+
+    final (ws, stream) = await connectAuthed(relay);
+    await waitFor(() => session.status.encoding, timeoutSeconds: 10);
+
+    ws.sink.add(
+      RelayEnvelope(
+        channel: RelayChannel.ctrl,
+        type: RelayMessageType.setViewport,
+        seq: 1,
+        ts: 0,
+        data: {'width': 1600, 'height': 900},
+      ).encode(),
+    );
+    await waitFor(
+      () => page.sent.any((c) => c.$1 == 'Emulation.setDeviceMetricsOverride'),
+    );
+    final call = page.sent
+        .firstWhere((c) => c.$1 == 'Emulation.setDeviceMetricsOverride');
+    expect(call.$2, {
+      'width': 1600,
+      'height': 900,
+      'deviceScaleFactor': 1,
+      'mobile': false,
+    });
+
+    // 非法尺寸丢弃
+    final before = page.sent
+        .where((c) => c.$1 == 'Emulation.setDeviceMetricsOverride')
+        .length;
+    ws.sink.add(
+      RelayEnvelope(
+        channel: RelayChannel.ctrl,
+        type: RelayMessageType.setViewport,
+        seq: 2,
+        ts: 0,
+        data: {'width': 10, 'height': 10},
+      ).encode(),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    expect(
+      page.sent
+          .where((c) => c.$1 == 'Emulation.setDeviceMetricsOverride')
+          .length,
+      before,
+    );
+
+    // stop 恢复原视口
+    await session.stop();
+    expect(
+      page.sent.any((c) => c.$1 == 'Emulation.clearDeviceMetricsOverride'),
+      isTrue,
+    );
+    await ws.sink.close();
+    await stream.drain<void>();
+  }, timeout: const Timeout(Duration(seconds: 60)));
 }

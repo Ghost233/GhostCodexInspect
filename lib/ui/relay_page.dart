@@ -207,6 +207,11 @@ class _SessionCard extends StatelessWidget {
             FieldRow(label: '最近错误', value: status.lastError ?? '无'),
           ] else if (status is VideoSessionStatus) ...[
             FieldRow(label: '编码器', value: status.encoder ?? '—', mono: true),
+            FieldRow(
+              label: '编码状态',
+              value: status.encoding ? '编码中' : '已暂停（无观众）',
+            ),
+            FieldRow(label: '观看数', value: '${status.viewers}'),
             FieldRow(label: '已编码帧', value: '${status.framesEncoded}'),
             FieldRow(label: '已发 AU', value: '${status.ausSent}'),
             FieldRow(
@@ -256,30 +261,16 @@ class _SessionCard extends StatelessWidget {
                 ],
                 onChanged: (v) => controller.setVideoEncoderKind(v),
               ),
-              _VideoSettingDropdown<int?>(
-                label: '分辨率上限',
-                value: controller.videoMaxWidth,
-                items: const [
-                  (null, '原始'),
-                  (1600, '1600'),
-                  (1280, '1280'),
-                  (960, '960'),
-                  (640, '640'),
+              _VideoSettingDropdown<VideoResolutionMode>(
+                label: '编码分辨率',
+                value: controller.videoResolutionMode,
+                items: [
+                  for (final mode in VideoResolutionMode.values)
+                    (mode, mode.label),
                 ],
-                onChanged: (v) => controller.setVideoMaxWidth(v),
+                onChanged: (v) => controller.setVideoResolutionMode(v),
               ),
-              _VideoSettingDropdown<int?>(
-                label: '码率',
-                value: controller.videoBitrateKbps,
-                items: const [
-                  (null, '自动'),
-                  (4000, '4 Mbps'),
-                  (2000, '2 Mbps'),
-                  (1000, '1 Mbps'),
-                  (500, '500 kbps'),
-                ],
-                onChanged: (v) => controller.setVideoBitrateKbps(v),
-              ),
+              _BitrateSlider(controller: controller),
             ],
           ),
           const SizedBox(height: 12),
@@ -409,6 +400,44 @@ class _VideoSettingDropdown<T> extends StatelessWidget {
               DropdownMenuItem<T>(value: v, child: Text(text)),
           ],
           onChanged: (v) => onChanged(v as T),
+        ),
+      ],
+    );
+  }
+}
+
+/// 码率滑条（#27）：1–50 Mbps，拖动结束才持久化。
+class _BitrateSlider extends StatelessWidget {
+  const _BitrateSlider({required this.controller});
+
+  final HostController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final kbps = controller.videoBitrateKbps;
+    final mbps = kbps / 1000;
+    final label = mbps >= 10
+        ? '${mbps.toStringAsFixed(0)} Mbps'
+        : '${mbps.toStringAsFixed(1)} Mbps';
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('码率', style: Theme.of(context).textTheme.bodySmall),
+        SizedBox(
+          width: 220,
+          child: Slider(
+            value: kbps.toDouble(),
+            min: 1000,
+            max: 50000,
+            divisions: 49,
+            label: label,
+            onChanged: (v) => controller.previewVideoBitrateKbps(v.round()),
+            onChangeEnd: (v) => controller.setVideoBitrateKbps(v.round()),
+          ),
+        ),
+        SizedBox(
+          width: 64,
+          child: Text(label, style: Theme.of(context).textTheme.bodySmall),
         ),
       ],
     );

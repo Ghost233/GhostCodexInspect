@@ -22,6 +22,8 @@ import 'package:ghost_codex_inspect/video/video_encoder.dart';
 class VideoSessionStatus {
   const VideoSessionStatus({
     required this.active,
+    required this.encoding,
+    required this.viewers,
     required this.encoder,
     required this.framesEncoded,
     required this.ausSent,
@@ -31,6 +33,12 @@ class VideoSessionStatus {
   });
 
   final bool active;
+
+  /// 编码管线是否在跑（#27：无已鉴权观众时暂停编码）。
+  final bool encoding;
+
+  /// 已鉴权观众数。
+  final int viewers;
 
   /// 实际生效的编码器（'h264_videotoolbox' / 'libx264'；未启动为 null）。
   final String? encoder;
@@ -43,17 +51,63 @@ class VideoSessionStatus {
   final String? lastError;
 }
 
+/// 编码分辨率模式（#27）：由实际视口宽度换算 startScreencast 的
+/// maxWidth（即编码分辨率上限）。
+enum VideoResolutionMode {
+  /// 跟随视口原始分辨率（不缩放）。
+  original('原始（跟随视口）'),
+
+  /// 视口的 2/3（如 1920×1090 视口 → 1280×720 编码）。
+  twoThirds('视口的 2/3'),
+
+  /// 视口的 1/2。
+  half('视口的 1/2'),
+
+  /// 固定 1280 宽。
+  fixed1280('固定 1280 宽');
+
+  const VideoResolutionMode(this.label);
+
+  /// 展示文案。
+  final String label;
+
+  /// 持久化标识（枚举名；只能追加不能重排）。
+  String get wireTag => name;
+
+  /// 从持久化标识还原（未知值回落默认 twoThirds）。
+  static VideoResolutionMode fromWireTag(String tag) =>
+      VideoResolutionMode.values.firstWhere(
+        (m) => m.name == tag,
+        orElse: () => VideoResolutionMode.twoThirds,
+      );
+
+  /// 由实际视口宽度计算编码宽度上限（null=不限制）；取偶
+  /// （yuv420p 编码要求偶数尺寸）。
+  int? maxWidthFor(int viewportWidth) => switch (this) {
+    VideoResolutionMode.original => null,
+    VideoResolutionMode.twoThirds => _even(viewportWidth * 2 ~/ 3),
+    VideoResolutionMode.half => _even(viewportWidth ~/ 2),
+    VideoResolutionMode.fixed1280 => 1280,
+  };
+
+  static int _even(int v) => v.isEven ? v : v - 1;
+}
+
 /// 视频流会话。
+///
+/// #27：无已鉴权观众时不编码——会话 start 后只挂控制面（输入/页签切换
+/// /meta），编码管线（screencast + ffmpeg）在首个观众鉴权时启动、最后
+/// 一个观众断开时暂停。
 class VideoSession {
   VideoSession({
     required this.page,
     required this.relay,
     this.codec = VideoCodecKind.h264,
     this.encoderKind = VideoEncoderKind.auto,
-    this.bitrateKbps,
+    this.bitrateKbps = 2000,
     this.quality = 60,
     this.everyNthFrame = 2,
-    this.maxWidth = 1280,
+    this.resolutionMode = VideoResolutionMode.twoThirds,
     this.onSwitchRequested,
     this.locator = const FfmpegLocator(),
   });
@@ -63,11 +117,13 @@ class VideoSession {
   final VideoCodecKind codec;
   final VideoEncoderKind encoderKind;
 
-  /// 码率（kbps；null = 编码器自动）。
-  final int? bitrateKbps;
+  /// 码率（kbps）。
+  final int bitrateKbps;
   final int quality;
   final int everyNthFrame;
-  final int? maxWidth;
+
+  /// 编码分辨率模式（#27）：由实际视口换算 maxWidth。
+  final VideoResolutionMode resolutionMode;
 
   /// #16：远程端请求切换 shell 页面时回调（宿主重建会话）。
   final void Function(String targetId)? onSwitchRequested;
@@ -75,10 +131,15 @@ class VideoSession {
   /// ffmpeg 定位器（可注入 fake 便于测试）。
   final FfmpegLocator locator;
 
+  String? _ffmpegPath;
   FfmpegVideoEncoder? _encoder;
   StreamSubscription<ScreencastFrameData>? _frameSub;
   StreamSubscription<Uint8List>? _auSub;
   bool _active = false;
+  bool _encoding = false;
+  bool _resumeInFlight = false;
+  int _viewportWidth = 0;
+  int _viewportHeight = 0;
   int _framesEncoded = 0;
   int _ausSent = 0;
   int _idrAusSent = 0;
@@ -88,11 +149,16 @@ class VideoSession {
 
   bool get isActive => _active;
 
+  /// 编码管线是否在跑（无观众时为 false）。
+  bool get isEncoding => _encoding;
+
   /// 首个 AU 编码完成（E2E 等待点）。
   Future<void> get firstAccessUnit => _firstAu.future;
 
   VideoSessionStatus get status => VideoSessionStatus(
     active: _active,
+    encoding: _encoding,
+    viewers: relay.authedClientCount,
     encoder: _encoder?.activeEncoder,
     framesEncoded: _framesEncoded,
     ausSent: _ausSent,
@@ -101,60 +167,105 @@ class VideoSession {
     lastError: _lastError,
   );
 
-  /// 启动：互斥守卫 → ffmpeg 探测与编码器启动 → Page.enable →
-  /// videoMeta → startScreencast → 帧喂编码器 → AU 广播。
+  /// 启动：互斥守卫 → ffmpeg 预检 → 挂控制面回调 → Page.enable →
+  /// 读视口 → videoMeta → 有观众才启动编码管线（#27）。
   Future<void> start() async {
     if (_active) return;
     // 一期互斥约定：与 DOM/画面流会话共享中转回调（#12 决策）
     if (relay.onClientMessage != null || relay.onClientAuthed != null) {
       throw StateError('中转消息回调已被另一会话占用（一期互斥约定：先 stop 另一个会话）');
     }
+    // ffmpeg 预检：缺失立即报错，不等到首个观众接入才发现
     final lookup = await locator.find();
     if (!lookup.available) {
       throw StateError('未找到 ffmpeg：请先 ${FfmpegLocator.installCommand}');
     }
-    final encoder = FfmpegVideoEncoder(
-      ffmpegPath: lookup.path!,
-      codec: codec,
-      kind: encoderKind,
-      bitrateKbps: bitrateKbps,
-    );
-    await encoder.start();
-    _encoder = encoder;
+    _ffmpegPath = lookup.path!;
 
     relay.onClientMessage = _handleClientMessage;
     relay.onClientAuthed = _handleClientAuthed;
+    relay.onClientDisconnected = _handleClientDisconnected;
 
     await page.send('Page.enable');
+    await _readViewport();
     await _broadcastVideoMeta();
-    await page.send('Page.startScreencast', {
-      'format': 'jpeg',
-      'quality': quality,
-      'everyNthFrame': everyNthFrame,
-      if (maxWidth != null) 'maxWidth': maxWidth,
-    });
-
-    _frameSub = page.screencastFrames.listen(
-      _onFrame,
-      onError: (Object e) => _lastError = '$e',
-    );
-    _auSub = encoder.accessUnits.listen(
-      _onAccessUnit,
-      onError: (Object e) => _lastError = '$e',
-    );
     _active = true;
+    if (relay.authedClientCount > 0) {
+      await _resumeEncoding();
+    }
   }
 
-  Future<void> _broadcastVideoMeta() async {
+  Future<void> _readViewport() async {
     final raw = await page.evaluate(
       'JSON.stringify({viewportWidth: innerWidth, viewportHeight: innerHeight})',
     );
     final map = jsonDecode(raw as String) as Map<String, dynamic>;
+    _viewportWidth = (map['viewportWidth'] as num).toInt();
+    _viewportHeight = (map['viewportHeight'] as num).toInt();
+  }
+
+  /// 启动编码管线（screencast + ffmpeg）。幂等；encoding=true 时
+  /// 编码器一定已就绪。
+  Future<void> _resumeEncoding() async {
+    if (!_active || _encoding || _resumeInFlight) return;
+    _resumeInFlight = true;
+    try {
+      final encoder = FfmpegVideoEncoder(
+        ffmpegPath: _ffmpegPath!,
+        codec: codec,
+        kind: encoderKind,
+        bitrateKbps: bitrateKbps,
+      );
+      await encoder.start();
+      _encoder = encoder;
+      _auSub = encoder.accessUnits.listen(
+        _onAccessUnit,
+        onError: (Object e) => _lastError = '$e',
+      );
+      final maxWidth = resolutionMode.maxWidthFor(_viewportWidth);
+      await page.send('Page.startScreencast', {
+        'format': 'jpeg',
+        'quality': quality,
+        'everyNthFrame': everyNthFrame,
+        'maxWidth': ?maxWidth,
+      });
+      _frameSub = page.screencastFrames.listen(
+        _onFrame,
+        onError: (Object e) => _lastError = '$e',
+      );
+      _encoding = true;
+      // encoder 名此时才确定，重发 meta 让远程端看到真实编码器
+      await _broadcastVideoMeta();
+    } catch (e) {
+      _lastError = '$e';
+      rethrow;
+    } finally {
+      _resumeInFlight = false;
+    }
+  }
+
+  /// 暂停编码管线（#27：最后一个观众离开时调用）。幂等。
+  Future<void> _pauseEncoding() async {
+    if (!_encoding) return;
+    _encoding = false;
+    await _frameSub?.cancel();
+    _frameSub = null;
+    await _auSub?.cancel();
+    _auSub = null;
+    try {
+      await page.send('Page.stopScreencast');
+    } catch (_) {}
+    final encoder = _encoder;
+    _encoder = null;
+    await encoder?.stop();
+  }
+
+  Future<void> _broadcastVideoMeta() async {
     relay.broadcast(RelayChannel.video, RelayMessageType.videoMeta, {
       'codec': codec.wireTag,
       'encoder': _encoder?.activeEncoder ?? 'unknown',
-      'viewportWidth': map['viewportWidth'],
-      'viewportHeight': map['viewportHeight'],
+      'viewportWidth': _viewportWidth,
+      'viewportHeight': _viewportHeight,
     });
   }
 
@@ -238,6 +349,22 @@ class VideoSession {
     // 晚到补种：videoMeta 立即发；画面从下一个关键帧起可解码（远程端
     // 在拿到关键帧前丢 delta AU）。
     unawaited(_broadcastVideoMeta());
+    // #27：首个已鉴权观众接入 → 启动编码管线
+    if (relay.authedClientCount == 1 && !_encoding) {
+      unawaited(
+        _resumeEncoding().catchError((Object e) {
+          _lastError = '$e';
+          return null;
+        }),
+      );
+    }
+  }
+
+  void _handleClientDisconnected(int clientId) {
+    // #27：最后一个已鉴权观众离开 → 暂停编码管线（省 CPU/带宽）
+    if (_active && relay.authedClientCount == 0) {
+      unawaited(_pauseEncoding());
+    }
   }
 
   void _handleClientMessage(int clientId, RelayEnvelope envelope) {
@@ -266,23 +393,19 @@ class VideoSession {
     );
   }
 
-  /// 停止（幂等）：停 screencast + 编码器，归还中转回调。
+  /// 停止（幂等）：停编码管线，归还中转回调。
   Future<void> stop() async {
     if (!_active) return;
     _active = false;
-    await _frameSub?.cancel();
-    _frameSub = null;
-    await _auSub?.cancel();
-    _auSub = null;
-    try {
-      await page.send('Page.stopScreencast');
-    } catch (_) {}
-    await _encoder?.stop();
+    await _pauseEncoding();
     if (relay.onClientMessage == _handleClientMessage) {
       relay.onClientMessage = null;
     }
     if (relay.onClientAuthed == _handleClientAuthed) {
       relay.onClientAuthed = null;
+    }
+    if (relay.onClientDisconnected == _handleClientDisconnected) {
+      relay.onClientDisconnected = null;
     }
   }
 }

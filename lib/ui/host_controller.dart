@@ -160,6 +160,14 @@ class HostController extends ChangeNotifier {
         (relayPort == 0 || (relayPort >= 1024 && relayPort <= 65535))) {
       _relayPort = relayPort;
     }
+    final modeTag = prefs.getString(_kVideoResolutionModeKey);
+    if (modeTag != null) {
+      videoResolutionMode = VideoResolutionMode.fromWireTag(modeTag);
+    }
+    final kbps = prefs.getInt(_kVideoBitrateKbpsKey);
+    if (kbps != null && kbps >= 1000 && kbps <= 50000) {
+      videoBitrateKbps = kbps;
+    }
     notifyListeners();
   }
 
@@ -280,15 +288,18 @@ class HostController extends ChangeNotifier {
   DomSession? _domSession;
   VideoSession? _videoSession;
 
-  /// 视频流编码参数（#25）：启动视频会话时生效。
+  /// 视频流编码参数（#25/#27）：启动视频会话时生效。
   VideoCodecKind videoCodec = VideoCodecKind.h264;
   VideoEncoderKind videoEncoderKind = VideoEncoderKind.auto;
 
-  /// 压缩分辨率上限（宽度 px，null=原始）。
-  int? videoMaxWidth = 1280;
+  static const String _kVideoResolutionModeKey = 'gci.videoResolutionMode';
+  static const String _kVideoBitrateKbpsKey = 'gci.videoBitrateKbps';
 
-  /// 码率（kbps，null=编码器自动）。
-  int? videoBitrateKbps;
+  /// 编码分辨率模式（#27）：原始/按比例缩放/固定，由实际视口换算。
+  VideoResolutionMode videoResolutionMode = VideoResolutionMode.twoThirds;
+
+  /// 码率（kbps，1M–50M 滑条；#27）。
+  int videoBitrateKbps = 2000;
 
   void setVideoCodec(VideoCodecKind v) {
     videoCodec = v;
@@ -300,13 +311,26 @@ class HostController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setVideoMaxWidth(int? v) {
-    videoMaxWidth = v;
+  Future<void> setVideoResolutionMode(VideoResolutionMode v) async {
+    videoResolutionMode = v;
     notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kVideoResolutionModeKey, v.wireTag);
   }
 
-  void setVideoBitrateKbps(int? v) {
-    videoBitrateKbps = v;
+  Future<void> setVideoBitrateKbps(int kbps) async {
+    if (kbps < 1000 || kbps > 50000) {
+      throw ArgumentError('码率须在 1000-50000 kbps（1-50 Mbps）之间：$kbps');
+    }
+    videoBitrateKbps = kbps;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kVideoBitrateKbpsKey, kbps);
+  }
+
+  /// 滑条拖动中的预览更新（不持久化；松手时由 setVideoBitrateKbps 落盘）。
+  void previewVideoBitrateKbps(int kbps) {
+    videoBitrateKbps = kbps;
     notifyListeners();
   }
 
@@ -431,7 +455,7 @@ class HostController extends ChangeNotifier {
                 relay: relay,
                 codec: videoCodec,
                 encoderKind: videoEncoderKind,
-                maxWidth: videoMaxWidth,
+                resolutionMode: videoResolutionMode,
                 bitrateKbps: videoBitrateKbps,
                 onSwitchRequested: handleSwitch,
               );

@@ -113,6 +113,10 @@ class RelayServer {
   /// 全量快照重发，让晚到的远程端立即拿到完整画面）。
   void Function(int clientId)? onClientAuthed;
 
+  /// 已鉴权远程端断开回调（#27：最后一个观众离开时上层暂停编码等
+  /// 重负载管线）。
+  void Function(int clientId)? onClientDisconnected;
+
   HttpServer? _server;
   InternetAddress? _bindAddress;
   String? _token;
@@ -132,6 +136,10 @@ class RelayServer {
 
   /// 当前远程端连接数。
   int get clientCount => _clients.length;
+
+  /// 当前已鉴权远程端数（#27「无人观看不编码」的判定基准）。
+  int get authedClientCount =>
+      _clients.values.where((c) => c.isAuthed).length;
 
   /// 当前远程端连接列表（中转台 UI 用）。
   List<RelayClientInfo> get clients => [
@@ -220,7 +228,12 @@ class RelayServer {
     }
   }
 
-  void _removeClient(int id) => _clients.remove(id);
+  void _removeClient(int id) {
+    final session = _clients.remove(id);
+    if (session != null && session.isAuthed) {
+      onClientDisconnected?.call(id);
+    }
+  }
 
   void _dispatch(int clientId, RelayEnvelope envelope) =>
       onClientMessage?.call(clientId, envelope);

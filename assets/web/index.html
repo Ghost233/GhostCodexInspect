@@ -8,29 +8,14 @@
   <link rel="stylesheet" href="./css/style.css" />
 </head>
 <body>
-  <!-- 顶栏：双模式切换 + 连接状态指示 -->
+  <!-- 顶栏：模式指示（跟随宿主会话自动切换，不再手选）+ 连接状态 -->
   <header class="topbar">
     <div class="topbar-left">
       <span class="app-name">Ghost Codex Inspect</span>
       <span class="app-sub">远程端</span>
     </div>
 
-    <nav class="mode-switch" role="tablist" aria-label="远程模式切换">
-      <button
-        id="mode-dom"
-        class="mode-btn active"
-        role="tab"
-        aria-selected="true"
-        data-mode="dom"
-      >DOM 重绘模式</button>
-      <button
-        id="mode-video"
-        class="mode-btn"
-        role="tab"
-        aria-selected="false"
-        data-mode="video"
-      >视频流模式</button>
-    </nav>
+    <span id="mode-label" class="mode-label">等待会话…</span>
 
     <div class="topbar-right">
       <!-- #22：视频流播放路径与解码偏好（仅视频流模式生效） -->

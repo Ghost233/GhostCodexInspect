@@ -163,7 +163,7 @@ Future<void> main() async {
     );
     final remote = await browser.newPage();
     await remote.goto('${relay.accessUrl}', wait: pp.Until.load);
-    await remote.evaluate("document.getElementById('mode-video').click()");
+    // 模式不再手选：首个 videoMeta 到达即自动切到视频窗格（2026-10-19）
 
     // WebCodecs 路径出帧（默认 auto）
     await _poll(

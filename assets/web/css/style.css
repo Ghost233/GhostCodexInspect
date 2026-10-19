@@ -74,14 +74,12 @@ body {
   font-size: 12px;
 }
 
-/* 双模式切换：分段控件（segmented control）样式 */
-.mode-switch {
-  display: flex;
+/* 模式指示：只读标签（模式跟随宿主会话自动切换，不再手选） */
+.mode-label {
   margin: 0 auto;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid var(--separator);
-  border-radius: var(--radius);
-  padding: 2px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
 }
 
 .mode-btn {

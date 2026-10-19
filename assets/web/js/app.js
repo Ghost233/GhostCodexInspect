@@ -8,36 +8,31 @@ import { VideoView } from './video.js';
 
 const $ = (id) => document.getElementById(id);
 
-/* ---------- 顶栏：双模式切换 ---------- */
+/* ---------- 模式指示：跟随宿主会话自动切换（不再手选） ---------- */
 
-/** 当前显示模式（#17 新鲜度指示按模式取对应通道的数据时间）。 */
-let currentMode = 'dom';
+/**
+ * 当前显示模式。null=尚无会话数据；'dom'|'video' 由到达的数据通道
+ * 推断（宿主侧会话互斥，同一时刻只有一种会话在广播）。
+ * 2026-10-19 用户反馈：手选模式与宿主会话不一致时看到空画面，
+ * 改为完全自动跟随。
+ */
+let currentMode = null;
 
-function setupModeSwitch() {
-  const buttons = document.querySelectorAll('.mode-btn');
-  const panes = {
-    dom: $('stage-dom'),
-    video: $('stage-video'),
-  };
-  for (const btn of buttons) {
-    btn.addEventListener('click', () => {
-      currentMode = btn.dataset.mode;
-      for (const b of buttons) {
-        const active = b === btn;
-        b.classList.toggle('active', active);
-        b.setAttribute('aria-selected', String(active));
-      }
-      for (const [mode, pane] of Object.entries(panes)) {
-        if (pane) pane.classList.toggle('hidden', mode !== btn.dataset.mode);
-      }
-      // #22：视频设置只在视频流模式显示
-      const videoSettings = $('video-settings');
-      if (videoSettings) {
-        videoSettings.classList.toggle('hidden', btn.dataset.mode !== 'video');
-      }
-      updateFreshness(); // 切模式立即刷新指示（另一模式可能久无数据）
-    });
+const MODE_LABELS = { dom: 'DOM 重绘模式', video: '视频流模式' };
+
+function applyMode(mode) {
+  if (mode === currentMode) return;
+  currentMode = mode;
+  const panes = { dom: $('stage-dom'), video: $('stage-video') };
+  for (const [m, pane] of Object.entries(panes)) {
+    if (pane) pane.classList.toggle('hidden', m !== mode);
   }
+  // #22：视频设置只在视频流模式显示
+  const videoSettings = $('video-settings');
+  if (videoSettings) videoSettings.classList.toggle('hidden', mode !== 'video');
+  const label = $('mode-label');
+  if (label) label.textContent = MODE_LABELS[mode] || '等待会话…';
+  updateFreshness(); // 切模式立即刷新指示（另一模式可能久无数据）
 }
 
 /* ---------- 顶栏：视图尺寸模式切换（#17 问题 1） ---------- */
@@ -134,6 +129,10 @@ const FRESH_STALE_MS = 3000;
 function updateFreshness() {
   const el = $('freshness');
   if (!el) return;
+  if (!currentMode) {
+    el.classList.add('hidden');
+    return;
+  }
   const last = currentMode === 'video' ? lastDataAt.video : lastDataAt.dom;
   if (!last) {
     el.classList.add('hidden');
@@ -251,7 +250,6 @@ function renderShellTabs(data, client, onBeforeSwitch) {
 /* ---------- 启动 ---------- */
 
 function main() {
-  setupModeSwitch();
   setupCursorDot();
 
   const host = $('replayer-host');
@@ -282,6 +280,7 @@ function main() {
     onMessage: (envelope) => {
       // 按通道分发（线格式权威：lib/relay/envelope.dart，键名 ch/t/data）
       if (envelope.ch === 'dom') {
+        applyMode('dom'); // 模式跟随宿主会话
         lastDataAt.dom = Date.now(); // #17 新鲜度指示
         session.handleDomMessage(envelope.t, envelope.data);
         // 首份全量快照到达后撤下占位层，露出重建画面
@@ -291,6 +290,7 @@ function main() {
         }
       } else if (envelope.ch === 'video') {
         // #22 视频流：videoMeta/videoFrame（v2 二进制 payload 为 Uint8Array）
+        applyMode('video'); // 模式跟随宿主会话
         lastDataAt.video = Date.now();
         videoView.handleVideoMessage(envelope.t, envelope.data);
         if (envelope.t === 'videoFrame') {

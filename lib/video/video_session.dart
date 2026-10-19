@@ -33,6 +33,7 @@ class VideoSessionStatus {
     required this.bytesSent,
     this.encodeQueueDepth = 0,
     this.lastFrameLatencyMs = 0,
+    this.frameRate = 30,
     this.lastError,
   });
 
@@ -59,6 +60,9 @@ class VideoSessionStatus {
 
   /// 最近一个 AU 的捕获→广播耗时（ms，CDP screencast 采集时刻起算）。
   final double lastFrameLatencyMs;
+
+  /// 当前目标帧率（远程端 setFrameRate 可调；诊断用）。
+  final int frameRate;
   final String? lastError;
 }
 
@@ -78,10 +82,10 @@ class VideoSession {
     // 忠实保留（2026-10-19 用户实测 20Mbps 仍模糊的根因）；本机/局域网
     // 带宽充足，默认 90
     this.quality = 90,
-    this.everyNthFrame = 2,
+    int frameRate = 30,
     this.onSwitchRequested,
     this.locator = const FfmpegLocator(),
-  });
+  }) : _frameRate = frameRate.clamp(1, kMaxFrameRate);
 
   final CdpPage page;
   final RelayServer relay;
@@ -93,7 +97,19 @@ class VideoSession {
 
   /// screencast 截帧 JPEG 质量（见构造器注释）。
   final int quality;
-  final int everyNthFrame;
+
+  /// 帧率上限（合成器源帧率约 60fps，超过无意义）。
+  static const int kMaxFrameRate = 60;
+
+  /// 当前目标帧率（远程端可通过 ctrl setFrameRate 调整，默认 30）。
+  int _frameRate;
+
+  /// 当前目标帧率（meta 回显与状态诊断用）。
+  int get frameRate => _frameRate;
+
+  /// 目标帧率 → screencast everyNthFrame（源 ~60fps：15→4、30→2、60→1）。
+  static int everyNthFrameForFps(int fps) =>
+      (kMaxFrameRate / fps).round().clamp(1, kMaxFrameRate);
 
   /// #16：远程端请求切换 shell 页面时回调（宿主重建会话）。
   final void Function(String targetId)? onSwitchRequested;
@@ -145,6 +161,7 @@ class VideoSession {
     bytesSent: _bytesSent,
     encodeQueueDepth: _captureTimes.length,
     lastFrameLatencyMs: _lastFrameLatencyMs,
+    frameRate: _frameRate,
     lastError: _lastError,
   );
 
@@ -217,6 +234,7 @@ class VideoSession {
         codec: codec,
         kind: encoderKind,
         bitrateKbps: bitrateKbps,
+        nominalFps: _frameRate,
       );
       await encoder.start();
       _encoder = encoder;
@@ -233,7 +251,7 @@ class VideoSession {
       await page.send('Page.startScreencast', {
         'format': 'jpeg',
         'quality': quality,
-        'everyNthFrame': everyNthFrame,
+        'everyNthFrame': everyNthFrameForFps(_frameRate),
       });
       _encoding = true;
       // encoder 名此时才确定，重发 meta 让远程端看到真实编码器
@@ -272,6 +290,7 @@ class VideoSession {
       'encoder': _encoder?.activeEncoder ?? 'unknown',
       'viewportWidth': _viewportWidth,
       'viewportHeight': _viewportHeight,
+      'frameRate': _frameRate,
     });
   }
 
@@ -311,6 +330,16 @@ class VideoSession {
       base64Encode(au), // v1 客户端文本回退
       binaryPayload: au, // v2 客户端二进制帧
     );
+  }
+
+  /// 解析 setFrameRate 请求：{fps: 1..60}，越界/非数字丢弃。
+  static int? _parseFrameRate(Object? data) {
+    if (data is! Map) return null;
+    final fps = data['fps'];
+    if (fps is! num) return null;
+    final v = fps.round();
+    if (v < 1 || v > kMaxFrameRate) return null;
+    return v;
   }
 
   /// AU 是否为关键帧（关键帧节奏诊断）：
@@ -410,6 +439,32 @@ class VideoSession {
           await applyViewportOverride(page, size.width, size.height);
           _viewportOverridden = true;
           await _readViewport();
+          await _broadcastVideoMeta();
+        }().catchError((Object e) {
+          _lastError = '$e';
+        }),
+      );
+      return;
+    }
+    // 远程端帧率偏好（2026-10-19「15/30/60 可选」需求）：screencast 的
+    // everyNthFrame 与编码器 -framerate 都是启动参数，只能重启捕获与编码
+    // 管线生效；重启后新 GOP 以 IDR 起，远程端解码器无缝衔接。videoMeta
+    // 回显新 frameRate，其余远程端的帧率选择器据此同步。
+    if (envelope.channel == RelayChannel.ctrl &&
+        envelope.type == RelayMessageType.setFrameRate) {
+      final fps = _parseFrameRate(envelope.data);
+      if (fps == null || fps == _frameRate) return;
+      _frameRate = fps;
+      unawaited(
+        () async {
+          if (_encoding) {
+            await _pauseEncoding();
+            // 重启期间最后一个观众可能恰好离开：恢复前复查
+            if (_active && relay.authedClientCount > 0) {
+              await _resumeEncoding(); // 末尾已重发 meta（含新 fps）
+              return;
+            }
+          }
           await _broadcastVideoMeta();
         }().catchError((Object e) {
           _lastError = '$e';

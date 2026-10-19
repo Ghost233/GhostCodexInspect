@@ -212,6 +212,20 @@ Future<void> main() async {
     // 因 currentMode 已是 'video' 早退，不会重发 setViewport；若宿主
     // stop() 清除了覆盖，目标页就停留在旧视口（「固定尺寸」）。
     log('⑥ Phase R：重启 VideoSession（远程页面保持不动）…');
+    // 基线先于重启记录：framesDecoded 累计值跨会话保留，断言必须比基线
+    // 增长（此前断言 >3 是过期即真，重启后断流也发现不了）
+    final framesBeforeR =
+        await remote.evaluate('window.__remote.videoView.framesDecoded')
+            as num? ??
+        0;
+    // 重启期间持续制造重绘：静态页面无 BeginFrame 则无帧，无法区分
+    // 「流断」与「无内容变化」
+    await page.evaluate('''
+      window.__pump = setInterval(() => {
+        const el = document.getElementById('counter-label');
+        if (el) el.textContent = 'pump ' + Date.now() % 100000;
+      }, 50);
+    ''');
     await session.stop();
     session = VideoSession(
       page: page,
@@ -222,12 +236,13 @@ Future<void> main() async {
     log(
       '   会话重启后 fixture 视口=${await page.evaluate('innerWidth')}x${await page.evaluate('innerHeight')}',
     );
-    // 等远程端重连 + 视口跟随落定
+    // 等远程端重连 + 视口跟随落定（帧数须比基线增长，证明真的重新出帧）
     await _waitTrue(
       remote,
-      'window.__remote.videoView.framesDecoded > 3',
+      'window.__remote.videoView.framesDecoded > ${framesBeforeR + 3}',
       '重连后重新出帧',
     );
+    await page.evaluate('clearInterval(window.__pump)');
     final pROk = await _waitFixtureViewport(
       page,
       remote,
@@ -239,6 +254,59 @@ Future<void> main() async {
       log('❌ Phase R FAIL：会话重启后视口未重新跟随（远程页面未刷新）');
     } else {
       log('✅ Phase R PASS：会话重启后视口重新跟随');
+    }
+
+    // ---- Phase 3：帧率 15/30/60 切换（2026-10-19 需求）----
+    // 远程端 #fps-select change → ctrl setFrameRate → 宿主重启捕获与编码
+    // 管线（everyNthFrame 与 -framerate 都是启动参数）→ meta 回显新帧率。
+    log('⑦ Phase 3：帧率切换 30→60→15→30…');
+    var fpsOk = true;
+    for (final fps in [60, 15, 30]) {
+      await remote.select('#fps-select', ['$fps']);
+      await remote.evaluate(
+        "document.getElementById('fps-select').dispatchEvent(new Event('change'))",
+      );
+      final ausBefore = session.status.ausSent;
+      final fedBefore = session.status.framesEncoded;
+      // 等宿主应用新帧率（管线重启完成）
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+      while (session.status.frameRate != fps || !session.status.encoding) {
+        if (DateTime.now().isAfter(deadline)) break;
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      // 观测窗内持续制造重绘：静态页面无 BeginFrame 则无帧，
+      // 「aus 不涨」无法区分流断与无内容变化
+      await page.evaluate('''
+        window.__pumpFps = setInterval(() => {
+          const el = document.getElementById('counter-label');
+          if (el) el.textContent = 'pump ' + Date.now() % 100000;
+        }, 50);
+      ''');
+      await Future<void>.delayed(const Duration(seconds: 2));
+      await page.evaluate('clearInterval(window.__pumpFps)');
+      final applied = session.status.frameRate == fps;
+      final flowed = session.status.ausSent > ausBefore;
+      final selNow = await remote.evaluate(
+        "document.getElementById('fps-select').value",
+      );
+      final synced = '$selNow' == '$fps';
+      final err = session.status.lastError;
+      log(
+        '   fps=$fps 应用=${applied ? "✓" : "✗"} 流存活=${flowed ? "✓" : "✗"} '
+        '选择器同步=${synced ? "✓" : "✗"} nth=${VideoSession.everyNthFrameForFps(fps)} '
+        'aus=$ausBefore→${session.status.ausSent} '
+        'fed=$fedBefore→${session.status.framesEncoded} '
+        'idr=${session.status.idrAusSent} '
+        'decoded=${await remote.evaluate('window.__remote.videoView.framesDecoded')}'
+        '${err != null ? " lastError=$err" : ""}',
+      );
+      if (!applied || !flowed || !synced || err != null) fpsOk = false;
+    }
+    if (!fpsOk) {
+      failures++;
+      log('❌ Phase 3 FAIL：帧率切换未生效或断流');
+    } else {
+      log('✅ Phase 3 PASS：15/30/60 切换均生效且流存活');
     }
 
     log(failures == 0 ? '✅ 复现脚本全绿（bug 未复现）' : '❌ 复现到 $failures 处失败');

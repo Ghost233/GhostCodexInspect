@@ -93,7 +93,7 @@ const CHANNEL_NAMES = ['dom', 'frame', 'input', 'ctrl', 'video'];
 const TYPE_NAMES = [
   'meta', 'full', 'inc', 'batch', 'resync', 'ping', 'pong',
   'auth', 'authOk', 'authErr', 'input', 'frame', 'shells', 'switchTarget',
-  'fileChooserHint', 'videoMeta', 'videoFrame', 'setViewport',
+  'fileChooserHint', 'videoMeta', 'videoFrame', 'setViewport', 'setFrameRate',
 ];
 
 /**
@@ -340,6 +340,15 @@ export class RelayClient {
    */
   setViewport(width, height) {
     return this._send('ctrl', 'setViewport', { width, height });
+  }
+
+  /**
+   * 请求宿主把视频流帧率调整为 fps（ctrl 通道 setFrameRate，
+   * 2026-10-19 帧率 15/30/60 可选需求）。宿主重启捕获与编码管线生效，
+   * 并在 videoMeta 里回显 frameRate 供其余远程端同步。
+   */
+  setFrameRate(fps) {
+    return this._send('ctrl', 'setFrameRate', { fps });
   }
 
   _setState(state, detail) {

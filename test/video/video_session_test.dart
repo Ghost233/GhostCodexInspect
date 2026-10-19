@@ -354,4 +354,105 @@ void main() {
     await ws.sink.close();
     await stream.drain<void>();
   }, timeout: const Timeout(Duration(seconds: 60)));
+
+  test('远程端 ctrl setFrameRate 重启编码管线应用新帧率并在 meta 回显', () async {
+    final lookup = await locator.find();
+    if (!lookup.available) return; // 无 ffmpeg 的机器跳过
+
+    final relay = RelayServer(staticDir: 'assets/web');
+    await relay.start();
+    addTearDown(relay.stop);
+    final page = _FakeCdpPage();
+    final session = VideoSession(page: page, relay: relay, locator: locator);
+    await session.start();
+    addTearDown(session.stop);
+    expect(session.status.frameRate, 30); // 默认 30fps
+
+    final (ws, stream) = await connectAuthed(relay);
+    // 收集后续 videoMeta（验证 fps 回显）
+    final metas = <Map<String, dynamic>>[];
+    stream.listen((e) {
+      if (e is! String) return;
+      final env = RelayEnvelope.tryDecode(e);
+      if (env != null &&
+          env.type == RelayMessageType.videoMeta &&
+          env.data is Map) {
+        metas.add((env.data as Map).cast<String, dynamic>());
+      }
+    });
+    await waitFor(() => session.status.encoding, timeoutSeconds: 10);
+    // 默认 30fps → everyNthFrame=2（合成器源 ~60fps）
+    final firstStart = page.sent.firstWhere(
+      (c) => c.$1 == 'Page.startScreencast',
+    );
+    expect(firstStart.$2?['everyNthFrame'], 2);
+
+    // 切 60fps：管线重启（stopScreencast → startScreencast nth=1）
+    ws.sink.add(
+      RelayEnvelope(
+        channel: RelayChannel.ctrl,
+        type: RelayMessageType.setFrameRate,
+        seq: 1,
+        ts: 0,
+        data: {'fps': 60},
+      ).encode(),
+    );
+    await waitFor(
+      () => page.sent.where((c) => c.$1 == 'Page.startScreencast').length >= 2,
+    );
+    expect(session.status.frameRate, 60);
+    final secondStart = page.sent
+        .where((c) => c.$1 == 'Page.startScreencast')
+        .last;
+    expect(secondStart.$2?['everyNthFrame'], 1);
+    expect(page.sent.any((c) => c.$1 == 'Page.stopScreencast'), isTrue);
+    // meta 回显新帧率（其余远程端据此同步选择器）
+    await waitFor(() => metas.any((m) => m['frameRate'] == 60));
+
+    // 非法值（0 / 61 / 非数字）丢弃，管线不重启
+    var starts = page.sent.where((c) => c.$1 == 'Page.startScreencast').length;
+    var seq = 2;
+    for (final bad in <Object>[0, 61, 'fast']) {
+      ws.sink.add(
+        RelayEnvelope(
+          channel: RelayChannel.ctrl,
+          type: RelayMessageType.setFrameRate,
+          seq: seq++,
+          ts: 0,
+          data: {'fps': bad},
+        ).encode(),
+      );
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    expect(
+      page.sent.where((c) => c.$1 == 'Page.startScreencast').length,
+      starts,
+    );
+    expect(session.status.frameRate, 60);
+
+    // 切 15fps：nth=4
+    ws.sink.add(
+      RelayEnvelope(
+        channel: RelayChannel.ctrl,
+        type: RelayMessageType.setFrameRate,
+        seq: 5,
+        ts: 0,
+        data: {'fps': 15},
+      ).encode(),
+    );
+    await waitFor(
+      () => page.sent.where((c) => c.$1 == 'Page.startScreencast').length >= 3,
+    );
+    expect(
+      page.sent
+          .where((c) => c.$1 == 'Page.startScreencast')
+          .last
+          .$2?['everyNthFrame'],
+      4,
+    );
+    expect(session.status.frameRate, 15);
+
+    await ws.sink.close();
+    await stream.drain<void>();
+  }, timeout: const Timeout(Duration(seconds: 60)));
 }

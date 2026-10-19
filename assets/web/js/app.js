@@ -127,6 +127,49 @@ function setupSizeToggle(session, videoView) {
 
 const PLAYBACK_PATH_KEY = 'gci.videoPlaybackPath';
 const DECODE_PREF_KEY = 'gci.videoDecodePref';
+const FPS_KEY = 'gci.videoFrameRate';
+
+/** 当前帧率偏好（宿主会话级共享，最后设置者生效；meta 回显会同步回来） */
+let currentFps = 30;
+let fpsClient = null; // RelayClient，authed 后重发帧率偏好用
+
+function pushFrameRate() {
+  if (fpsClient) fpsClient.setFrameRate(currentFps);
+}
+
+/** meta 回显的宿主帧率 → 同步选择器（另一远程端改过时本端跟随） */
+function syncFpsFromMeta(fps) {
+  if (!fps || fps === currentFps) return;
+  currentFps = fps;
+  const sel = $('fps-select');
+  if (sel && sel.value !== String(fps)) sel.value = String(fps);
+  try { localStorage.setItem(FPS_KEY, String(fps)); } catch { /* 忽略 */ }
+}
+
+/**
+ * 帧率选择器（15/30/60）：change → 存 localStorage + 立即下发；
+ * authed 后重发（连接建立前发送会被静默丢弃，与视口跟随同款收敛）。
+ * @param {import('./ws-client.js').RelayClient} client
+ */
+function setupFpsSelect(client) {
+  const sel = $('fps-select');
+  if (!sel) return;
+  fpsClient = client;
+  try {
+    const stored = parseInt(localStorage.getItem(FPS_KEY) || '', 10);
+    if ([15, 30, 60].includes(stored)) {
+      currentFps = stored;
+      sel.value = String(stored);
+    }
+  } catch { /* 隐私模式等忽略 */ }
+  sel.addEventListener('change', () => {
+    const fps = parseInt(sel.value, 10);
+    if (![15, 30, 60].includes(fps)) return;
+    currentFps = fps;
+    try { localStorage.setItem(FPS_KEY, String(fps)); } catch { /* 忽略 */ }
+    pushFrameRate();
+  });
+}
 
 /**
  * @param {import('./video.js').VideoView} videoView
@@ -333,7 +376,11 @@ function main() {
   const client = new RelayClient({
     url: wsUrl,
     token: params.token,
-    onState: setConnState,
+    onState: (state, detail) => {
+      setConnState(state, detail);
+      // authed 后重发帧率偏好：连接建立前的发送会被静默丢弃
+      if (state === 'authed') pushFrameRate();
+    },
     onMessage: (envelope) => {
       // 按通道分发（线格式权威：lib/relay/envelope.dart，键名 ch/t/data）
       if (envelope.ch === 'dom') {
@@ -358,6 +405,10 @@ function main() {
         }
         // videoMeta 携带源视口：同上，不一致则重发 setViewport 收敛
         if (envelope.t === 'videoMeta' && viewportSync) viewportSync();
+        // videoMeta 回显宿主帧率：另一远程端改过时本端选择器跟随
+        if (envelope.t === 'videoMeta' && envelope.data) {
+          syncFpsFromMeta(envelope.data.frameRate);
+        }
       } else if (envelope.ch === 'ctrl' && envelope.t === 'shells') {
         // #16：shell 页签栏；点击切换时先复位三个视图，再请求宿主重建会话
         renderShellTabs(envelope.data, client, () => {
@@ -378,6 +429,8 @@ function main() {
   // 视频流视图（#22）：H.264 Annex B → WebCodecs/MSE 双引擎
   const videoView = new VideoView($('video-host'), client, { readOnly });
   setupVideoSettings(videoView);
+  // 帧率选择器（15/30/60）：宿主会话级偏好，authed 后重发
+  setupFpsSelect(client);
 
   // 输入捕获层（#11）：overlay 盖在 iframe 上，事件换算源 CSS px 后经
   // input 通道回宿主转 CDP trusted 输入（lib/dom/input_dispatcher.dart）；

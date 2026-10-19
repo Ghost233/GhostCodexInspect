@@ -149,6 +149,16 @@ class FfmpegVideoEncoder {
       // mjpeg 解复用器：为连体 JPEG 流设计，实时出包；image2pipe 会
       // 攒到 stdin EOF 才输出（#22 调试实测）。
       '-f', 'mjpeg',
+      // 低帧率档启动静默根治（2026-10-19 用户反馈 15/30 偶发几乎无帧），
+      // 两个输入参数缺一不可（裸 ffmpeg 回放真实帧逐一证伪/证实）：
+      // 1) -fpsprobesize 0：avformat_find_stream_info 默认要攒约 20 帧
+      //    估算帧率才打开流；15fps 档（everyNthFrame=4、到达 ~5fps）下
+      //    每次编码器（重）启动先静默 ~4s，观测窗内零 AU。
+      // 2) -use_wallclock_as_timestamps 1：帧 pts 取喂入墙钟。screencast
+      //    到达率随页面重绘稀疏程度剧烈波动，若按帧序号推名义 pts，
+      //    VT realtime 会把「迟到」的帧整批丢弃（15 帧回放零产出）。
+      '-fpsprobesize', '0',
+      '-use_wallclock_as_timestamps', '1',
       '-framerate', '$nominalFps',
       '-i', 'pipe:0',
       '-c:v', encoder,

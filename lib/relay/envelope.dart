@@ -83,7 +83,12 @@ enum RelayMessageType {
   /// data = {width, height}；远程端→宿主的目标页视口覆盖请求（ctrl 通道，
   /// Emulation.setDeviceMetricsOverride；2026-10-19「Codex 内部分辨率
   /// 跟随远程端自适应」需求）。只追加不重排（二进制 id=枚举序+1）。
-  setViewport;
+  setViewport,
+
+  /// data = {fps}；远程端→宿主的帧率偏好（ctrl 通道，视频会话重启
+  /// 捕获与编码管线应用新帧率；2026-10-19 帧率 15/30/60 可选需求）。
+  /// 宿主在 videoMeta 里回显当前 frameRate 供其他远程端同步。
+  setFrameRate;
 
   static RelayMessageType? tryParse(String name) =>
       RelayMessageType.values.asNameMap()[name];

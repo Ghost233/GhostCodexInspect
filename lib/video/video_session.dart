@@ -85,7 +85,6 @@ class VideoSession {
   final int quality;
   final int everyNthFrame;
 
-
   /// #16：远程端请求切换 shell 页面时回调（宿主重建会话）。
   final void Function(String targetId)? onSwitchRequested;
 
@@ -349,14 +348,16 @@ class VideoSession {
         envelope.type == RelayMessageType.setViewport) {
       final size = parseViewportRequest(envelope.data);
       if (size == null) return;
-      unawaited(() async {
-        await applyViewportOverride(page, size.width, size.height);
-        _viewportOverridden = true;
-        await _readViewport();
-        await _broadcastVideoMeta();
-      }().catchError((Object e) {
+      unawaited(
+        () async {
+          await applyViewportOverride(page, size.width, size.height);
+          _viewportOverridden = true;
+          await _readViewport();
+          await _broadcastVideoMeta();
+        }().catchError((Object e) {
           _lastError = '$e';
-        }));
+        }),
+      );
       return;
     }
     if (envelope.channel != RelayChannel.input ||

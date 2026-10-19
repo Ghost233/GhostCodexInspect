@@ -287,8 +287,7 @@ void main() {
     await stream2.drain<void>();
   }, timeout: const Timeout(Duration(seconds: 60)));
 
-  test('远程端 ctrl setViewport 覆盖页面视口并重发 meta（自适应跟随）',
-      () async {
+  test('远程端 ctrl setViewport 覆盖页面视口并重发 meta（自适应跟随）', () async {
     final lookup = await locator.find();
     if (!lookup.available) return; // 无 ffmpeg 的机器跳过
 
@@ -315,8 +314,9 @@ void main() {
     await waitFor(
       () => page.sent.any((c) => c.$1 == 'Emulation.setDeviceMetricsOverride'),
     );
-    final call = page.sent
-        .firstWhere((c) => c.$1 == 'Emulation.setDeviceMetricsOverride');
+    final call = page.sent.firstWhere(
+      (c) => c.$1 == 'Emulation.setDeviceMetricsOverride',
+    );
     expect(call.$2, {
       'width': 1600,
       'height': 900,

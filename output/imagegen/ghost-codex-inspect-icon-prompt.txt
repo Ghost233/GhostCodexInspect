@@ -1,0 +1,24 @@
+Mode: built-in image_gen (reference-guided generation followed by a Codex-element edit)
+References: AppIcon.icns extracted from /Applications/Ghost Launcher.app, Ghost Model Deck.app, Ghost Nexus.app.
+
+Use case: logo-brand
+Asset type: production macOS application icon for Ghost Codex Inspect, a sibling to the three reference applications.
+Primary request: create a new Inspect icon that looks like the fourth member of this exact Ghost app family.
+Input images: Image 1 Ghost Launcher: style and mascot identity reference; Image 2 Ghost Model Deck: style and mascot identity reference; Image 3 Ghost Nexus: style and mascot identity reference. These are references, not replacement targets.
+Scene/backdrop: one dark midnight-navy to saturated indigo/violet gradient rounded-square macOS icon tile, matching the Launcher and Model Deck references. The canvas outside the tile is genuinely transparent.
+Subject: preserve the references' distinctive solid-white ghost mascot, two tall dark oval eyes, rounded head, outstretched little arms, rounded lower sides and one tapering curled tail. Replace the app-specific colored symbol with a single bold magnifying glass held at the lower chest, representing inspection. Use a cyan/turquoise circular lens rim and violet diagonal handle, with dark navy negative space inside the lens. Keep the eyes unobstructed.
+Style/medium: crisp flat graphic with vector-like clean antialiased contours, minimal smooth gradients only in the background and accent, matching the provided family closely.
+Composition/framing: square 1024x1024 canvas, one front-facing centered icon, tile occupies about 92% of canvas with even transparent padding; mascot occupies about 66% of the canvas width and 70% of the height, matching reference proportions. The magnifier is large enough to read at small Dock sizes, integrated into the ghost's lower body without obscuring its outline.
+Color palette: use the same white, midnight navy, electric cyan and violet as the reference icons.
+Constraints: preserve mascot identity, minimalist flat style and visual weight; only one ghost and one magnifying glass; real alpha outside the rounded tile; all artwork contained within canvas; no text, no letters, no watermark.
+Avoid: 3D extrusion, metallic effects, glassmorphism, drop shadows outside the icon, checkerboard painted into image, mockup presentations, device frames, multiple icons, Flutter logo, extra decorative dots or symbols.
+
+Final revision prompt:
+Use case: precise-object-edit
+Asset type: Ghost Codex Inspect macOS app icon.
+Primary request: add the missing Codex identity to the supplied icon by placing a bold white Codex-style terminal prompt ">_" inside the dark circular lens of the magnifying glass.
+Input image: edit target; preserve the existing Ghost-family icon design.
+Text (verbatim): ">_"
+Composition: the right-pointing chevron and short underscore form one balanced, large, centered white terminal mark, filling about 70% of the lens interior width. Use thick simple strokes and enough space between the two glyphs to remain clear at small Dock sizes.
+Constraints: change only the interior of the magnifying-glass lens; keep the ghost silhouette, eyes, magnifier rim, violet handle, navy-to-indigo tile, proportions and spacing unchanged. Preserve the two distinct glyphs exactly: one chevron > followed by one underscore _. Keep the genuine transparent canvas outside a smooth rounded-square tile. Remove stray color specks outside the perimeter if present.
+Avoid: extra text or letters, tiny illegible details, additional badges outside the lens, new colors, 3D effects, mockups, watermarks.

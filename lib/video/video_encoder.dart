@@ -160,8 +160,14 @@ class FfmpegVideoEncoder {
       // constant_bit_rate=false 显式 VBR（默认即 false，写明防升级回归）
       // ——-b:v 在 VBR 下是目标平均码率，静态画面自动省带宽（2026-10-19
       // 用户要求 VBR）
-      if (encoder != plan.swEncoder)
-        ...['-realtime', '1', '-prio_speed', '1', '-constant_bit_rate', 'false'],
+      if (encoder != plan.swEncoder) ...[
+        '-realtime',
+        '1',
+        '-prio_speed',
+        '1',
+        '-constant_bit_rate',
+        'false',
+      ],
       if (encoder == plan.swEncoder) ...plan.swArgs,
       '-flush_packets', '1', // 每包冲刷输出缓冲，保证实时性
       '-f', plan.outFormat,

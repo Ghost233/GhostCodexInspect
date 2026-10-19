@@ -1,0 +1,67 @@
+Ghost Codex Inspect icon validation
+Date: 2026-10-19 (Asia/Hong_Kong)
+Base commit: 3ef3bba1cb4ad71f21ddab4bafbe78e136c0b345
+Changes: seven macOS PNG icon assets; generated master, ICNS and prompt in output/imagegen.
+Toolchain: Flutter 3.47.7 stable, Dart 3.13.5, native macOS sips/iconutil/Xcode.
+Generation: built-in image_gen. See ghost-codex-inspect-icon-prompt.txt for both selected prompts.
+
+Commands and actual exit codes (final icon inputs):
+0: /Users/ghost233/flutter/bin/flutter --suppress-analytics pub get --enforce-lockfile
+1: FLUTTER_BIN=/Users/ghost233/flutter/bin/flutter DART_BIN=/Users/ghost233/flutter/bin/dart bash scripts/check-flutter.sh
+   Stopped at existing format failures in these unchanged files:
+   lib/dom/dom_session.dart
+   lib/video/video_encoder.dart
+   lib/video/video_session.dart
+   test/cdp/viewport_override_test.dart
+   test/dom/dom_session_test.dart
+   test/video/video_session_test.dart
+   tool/measure_screencast_real.dart
+   Format check used --output=none; none of these source files were edited.
+0: FLUTTER_BIN=/Users/ghost233/flutter/bin/flutter DART_BIN=/Users/ghost233/flutter/bin/dart bash scripts/check-flutter.sh analyze
+   No issues found.
+0: FLUTTER_BIN=/Users/ghost233/flutter/bin/flutter DART_BIN=/Users/ghost233/flutter/bin/dart bash scripts/check-flutter.sh test
+   129 Flutter tests and 14 web tests passed.
+0: /Users/ghost233/flutter/bin/flutter --suppress-analytics build macos --release --no-pub
+   Built build/macos/Build/Products/Release/Ghost Codex Inspect.app (53.8 MB).
+   Build emitted existing plugin/SPM and MetalToolchain search-path warnings.
+0: Native iconutil ICNS export with all ten required slots.
+   The initial sandboxed export returned 1; export with system image services available returned 0.
+0: PNG signature, RGBA color type, dimensions and all ten Contents.json slot checks.
+0: ICNS header and total-length validation.
+0: PNG alpha inspection: all four corners alpha 0; center alpha 253/255.
+   An initial extra assertion expecting exactly 255 at center returned 1; the generated interior is slightly translucent.
+0: Read built Info.plist and extract its compiled AppIcon.icns; visually checked the Codex >_ mark.
+0: git diff --check
+
+Git state at initial icon delivery:
+No commit or push was performed.
+Local main, origin/main and live remote main all matched 3ef3bba1cb4ad71f21ddab4bafbe78e136c0b345.
+Only the seven icon PNG files and output/imagegen deliverables differ from the base commit.
+
+Final asset SHA256:
+8d55eebb0db0ce8f11147a4e811e00636d3ec2b79c7ae79dffb7089df30b995d  macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_1024.png
+8963489d66594c5a28257d38c29c64b3b318f607b1c755c977b3348c77026262  macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_128.png
+036ad307d3acc5b099861948b960f212d4d1d83e2fb58817708cdb067e10bc48  macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_16.png
+30ea334a21e6ecd734476888b4803c5356d788c1a2fd495f2ddc30b493b02642  macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_256.png
+1dc9de1c2bd3a92ef0a9e6d41f8b1bd16f22a8a3609774222ba4e3ad5a48c0e4  macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_32.png
+8f1dfe380c84d35a47cf84bb1378abb09ef78509324e45207ba5615ab1b88a42  macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png
+5b56ddc5ca1dd992f9424298cfcfa67fcbde10538ddccb5003cb20ac9682e0c3  macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_64.png
+bfb7fdd45fd6d0fc5ac64a2d1b62f011221731783248a6bbc18f094963a54f66  output/imagegen/ghost-codex-inspect-icon.png
+8133596881deedb385ba2ca913c1eef68cae4b58a29168badd11bb00cc0d8a7f  output/imagegen/ghost-codex-inspect.icns
+
+Release preparation follow-up (2026-10-19, Asia/Hong_Kong):
+The seven Dart format failures above were fixed using the repository-pinned formatter, with no behavior changes.
+Final tested version: 1.0.5 (the release script will reproduce this version change).
+All 194 previously tracked input files were checked against the final validation snapshot with no drift.
+0: /Users/ghost233/flutter/bin/flutter --suppress-analytics pub get --enforce-lockfile
+0: FLUTTER_BIN=/Users/ghost233/flutter/bin/flutter DART_BIN=/Users/ghost233/flutter/bin/dart bash scripts/check-flutter.sh
+   Format: 71 files checked, 0 changes.
+   Analysis: no issues.
+   Tests: 129 Flutter tests and 14 web tests passed.
+0: python3 scripts/test_release.py
+   Release version rules and dry-run test passed.
+0: /Users/ghost233/flutter/bin/flutter --suppress-analytics build macos --release --no-pub
+   Built app version confirmed as 1.0.5 in Contents/Info.plist.
+0: Final source-input SHA256 comparison and git diff --check.
+Full command logs: /private/tmp/ghost-codex-inspect-v1.0.5-check.log and /private/tmp/ghost-codex-inspect-v1.0.5-build.log.
+Validated pubspec.yaml SHA256: 2455cbe2164a624df137e35d9495c8b137f5709ff0495d051108d8c41463ca8a

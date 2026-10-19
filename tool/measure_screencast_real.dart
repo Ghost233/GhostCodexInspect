@@ -36,11 +36,15 @@ Future<(int, int)> sample(CdpPage page, String label) async {
 
 Future<void> main(List<String> args) async {
   // --format=jpeg|png（默认 jpeg）、--quality=N（默认 60）
-  final fmtArg =
-      args.firstWhere((a) => a.startsWith('--format='), orElse: () => '');
+  final fmtArg = args.firstWhere(
+    (a) => a.startsWith('--format='),
+    orElse: () => '',
+  );
   final format = fmtArg.isEmpty ? 'jpeg' : fmtArg.split('=').last;
-  final qArg =
-      args.firstWhere((a) => a.startsWith('--quality='), orElse: () => '');
+  final qArg = args.firstWhere(
+    (a) => a.startsWith('--quality='),
+    orElse: () => '',
+  );
   final quality = qArg.isEmpty ? 60 : int.parse(qArg.split('=').last);
   stdout.writeln('格式：$format，quality：$quality');
   final connection = await connectCdp(debugPort: debugPort);

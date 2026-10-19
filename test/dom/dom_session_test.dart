@@ -280,8 +280,9 @@ void main() {
     await _waitFor(
       () => page.sent.any((c) => c.$1 == 'Emulation.setDeviceMetricsOverride'),
     );
-    final call = page.sent
-        .firstWhere((c) => c.$1 == 'Emulation.setDeviceMetricsOverride');
+    final call = page.sent.firstWhere(
+      (c) => c.$1 == 'Emulation.setDeviceMetricsOverride',
+    );
     expect(call.$2, {
       'width': 1600,
       'height': 900,

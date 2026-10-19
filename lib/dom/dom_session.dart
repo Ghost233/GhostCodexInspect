@@ -81,6 +81,7 @@ class DomSession {
   int _batchesReceived = 0;
   int _envelopesSent = 0;
   int _inputsDispatched = 0;
+
   /// 是否已对页面应用视口覆盖（stop 时据此恢复）。
   bool _viewportOverridden = false;
   bool _started = false;
@@ -222,13 +223,15 @@ class DomSession {
         // 触发全量快照，远程端按新尺寸重建
         final size = parseViewportRequest(envelope.data);
         if (size == null) break;
-        unawaited(() async {
-          await applyViewportOverride(page, size.width, size.height);
-          _viewportOverridden = true;
-          await _resync();
-        }().catchError((Object e) {
-          _lastError = '$e';
-        }));
+        unawaited(
+          () async {
+            await applyViewportOverride(page, size.width, size.height);
+            _viewportOverridden = true;
+            await _resync();
+          }().catchError((Object e) {
+            _lastError = '$e';
+          }),
+        );
       case (RelayChannel.input, RelayMessageType.input):
         _dispatchClientInput(envelope.data);
       default:

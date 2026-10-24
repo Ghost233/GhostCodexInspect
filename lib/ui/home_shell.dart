@@ -42,7 +42,10 @@ class _HomeShellState extends State<HomeShell> {
       LauncherPage(controller: widget.controller),
       InspectorPage(controller: widget.controller),
       RelayPage(controller: widget.controller),
-      PreviewPage(controller: widget.controller),
+      // IndexedStack 会急切构建全部页面；预览页必须知道自己是否被选中，
+      // 否则内嵌 WebView 在中转运行 + 会话启动时会自动连上中转并触发
+      // 编码（2026-10-25 用户反馈「幽灵 client」）。
+      PreviewPage(controller: widget.controller, active: _index == 3),
     ];
     return Scaffold(
       body: Row(

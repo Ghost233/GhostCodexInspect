@@ -18,6 +18,13 @@
     <span id="mode-label" class="mode-label">等待会话…</span>
 
     <div class="topbar-right">
+      <div id="zoom-control" class="zoom-control" aria-label="远程界面缩放">
+        <button id="zoom-out" type="button" aria-label="缩小远程界面">−</button>
+        <span id="zoom-value" aria-live="polite">100%</span>
+        <button id="zoom-in" type="button" aria-label="放大远程界面">+</button>
+      </div>
+      <!-- #17：视图尺寸模式切换（自适应/原始尺寸）与刷新新鲜度指示 -->
+      <button id="size-toggle" class="size-toggle" aria-pressed="false">自适应</button>
       <!-- #22：视频流播放路径与解码偏好（仅视频流模式生效） -->
       <span id="video-settings" class="video-settings hidden">
         <select id="playback-path" aria-label="播放路径">
@@ -38,8 +45,6 @@
           <option value="60">帧率：60</option>
         </select>
       </span>
-      <!-- #17：视图尺寸模式切换（自适应/原始尺寸）与刷新新鲜度指示 -->
-      <button id="size-toggle" class="size-toggle" aria-pressed="false">自适应</button>
       <span id="freshness" class="freshness hidden" aria-live="off"></span>
       <span id="ro-badge" class="ro-badge hidden">只读预览</span>
       <span id="conn-indicator" class="conn-indicator disconnected" title="连接状态">

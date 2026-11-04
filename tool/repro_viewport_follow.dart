@@ -125,6 +125,51 @@ Future<void> main() async {
       log('✅ Phase 0 PASS：fixture 视口已跟随远程舞台');
     }
 
+    // 手机宽度下缩放目标视口，同时保持画面完整和输入坐标正确。
+    log('③b：手机尺寸下验证 50% / 200% 缩放…');
+    await remote.setViewport(const pp.DeviceViewport(width: 390, height: 844));
+    for (final step in [
+      (button: '#zoom-out', clicks: 5, zoom: 50),
+      (button: '#zoom-in', clicks: 15, zoom: 200),
+      (button: '#zoom-out', clicks: 10, zoom: 100),
+    ]) {
+      for (var i = 0; i < step.clicks; i++) {
+        await remote.click(step.button);
+      }
+      final ok = await _waitFixtureViewport(
+        page,
+        remote,
+        const Duration(seconds: 15),
+        zoom: step.zoom,
+      );
+      final state = jsonDecode(
+        await remote.evaluate('''
+          (() => {
+            const view = window.__remote.videoView;
+            const rect = view.canvas.getBoundingClientRect();
+            const center = view._toSource({clientX: rect.left + rect.width / 2,
+                                           clientY: rect.top + rect.height / 2});
+            return JSON.stringify({label: document.getElementById('zoom-value').textContent,
+              viewport: [view.viewportWidth, view.viewportHeight], center,
+              width: document.documentElement.scrollWidth, screen: innerWidth});
+          })()
+        ''') as String,
+      ) as Map<String, dynamic>;
+      final viewport = state['viewport'] as List;
+      final center = state['center'] as Map?;
+      final coordinatesOk =
+          center != null &&
+          ((center['x'] as num) - (viewport[0] as num) / 2).abs() < 1 &&
+          ((center['y'] as num) - (viewport[1] as num) / 2).abs() < 1;
+      final passed =
+          ok &&
+          state['label'] == '${step.zoom}%' &&
+          coordinatesOk &&
+          state['width'] == state['screen'];
+      log('   ${step.zoom}%：${passed ? "✓" : "✗"} $state');
+      if (!passed) failures++;
+    }
+
     // ---- Phase 1：中途改远程舞台尺寸（奇数高 649 压测编码器） ----
     log('④ Phase 1：远程窗口改为 1000x701（舞台高约 649，奇数）…');
     await remote.setViewport(const pp.DeviceViewport(width: 1000, height: 701));
@@ -324,23 +369,29 @@ Future<void> main() async {
 Future<bool> _waitFixtureViewport(
   CdpPage page,
   pp.Page remote,
-  Duration timeout,
-) async {
+  Duration timeout, {
+  int zoom = 100,
+}) async {
   final deadline = DateTime.now().add(timeout);
   while (DateTime.now().isBefore(deadline)) {
     final stage = await remote.evaluate('''
       (() => {
         const s = document.getElementById('stage-video');
-        return JSON.stringify([s.clientWidth, s.clientHeight]);
+        const v = window.__remote.videoView;
+        return JSON.stringify([s.clientWidth, s.clientHeight, v.viewportWidth, v.viewportHeight]);
       })()
     ''');
     final dims = (jsonDecode(stage as String) as List).cast<int>();
     final vw = await page.evaluate('innerWidth');
     final vh = await page.evaluate('innerHeight');
-    if ((vw as num).toInt() >= dims[0] - 2 &&
-        (vw).toInt() <= dims[0] + 2 &&
-        (vh as num).toInt() >= dims[1] - 2 &&
-        (vh).toInt() <= dims[1] + 2) {
+    final expectedW = (dims[0] * 100 / zoom).round();
+    final expectedH = (dims[1] * 100 / zoom).round();
+    if ((vw as num).toInt() >= expectedW - 2 &&
+        (vw).toInt() <= expectedW + 2 &&
+        (vh as num).toInt() >= expectedH - 2 &&
+        (vh).toInt() <= expectedH + 2 &&
+        (dims[2] - expectedW).abs() <= 2 &&
+        (dims[3] - expectedH).abs() <= 2) {
       return true;
     }
     await Future<void>.delayed(const Duration(milliseconds: 400));

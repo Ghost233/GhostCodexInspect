@@ -44,17 +44,19 @@ function applyMode(mode) {
  * 以操作端为准）。 */
 let viewportSync = null; // () => void，main() 装配
 let currentSizeMode = 'fit'; // 尺寸切换三态循环的权威状态
+let currentZoom = 100;
+let updateZoomControls = () => {};
 
 function setupViewportSync(client, session, videoView, readOnly) {
   if (readOnly) return;
   let timer = null;
   const send = () => {
-    if (session.sizeMode !== 'fit') return;
+    if (currentSizeMode !== 'fit') return;
     const video = currentMode === 'video';
     const pane = $(video ? 'stage-video' : 'stage-dom');
     if (!pane || pane.classList.contains('hidden')) return;
-    const w = Math.floor(pane.clientWidth);
-    const h = Math.floor(pane.clientHeight);
+    const w = Math.round(pane.clientWidth * 100 / currentZoom);
+    const h = Math.round(pane.clientHeight * 100 / currentZoom);
     if (w < 64 || h < 64) return;
     // 收敛判定：源视口已等于舞台则不发（防 meta→setViewport→meta
     // 循环）。源尺寸取自宿主最近一次 meta——宿主会话重启后 meta 回到
@@ -107,6 +109,7 @@ function setupSizeToggle(session, videoView) {
     btn.textContent = LABELS[mode];
     btn.title = TITLES[mode];
     btn.setAttribute('aria-pressed', String(mode !== 'fit'));
+    updateZoomControls();
     // 切回自适应时立即回传一次舞台尺寸（让目标页视口跟随重排）
     if (mode === 'fit' && viewportSync) viewportSync();
   };
@@ -121,6 +124,35 @@ function setupSizeToggle(session, videoView) {
     if (v && MODES.includes(v)) stored = v;
   } catch { /* 忽略 */ }
   apply(stored);
+}
+
+/* 自适应模式下通过调整目标视口大小改变内容缩放，画面始终完整适配舞台。 */
+function setupZoomControls(readOnly) {
+  const out = $('zoom-out');
+  const input = $('zoom-in');
+  const value = $('zoom-value');
+  const control = $('zoom-control');
+  try {
+    const stored = Number(localStorage.getItem('gci.viewZoom'));
+    if (stored >= 50 && stored <= 200 && stored % 10 === 0) currentZoom = stored;
+  } catch { /* 隐私模式等忽略 */ }
+  updateZoomControls = () => {
+    const disabled = readOnly || currentSizeMode !== 'fit';
+    out.disabled = disabled || currentZoom <= 50;
+    input.disabled = disabled || currentZoom >= 200;
+    value.textContent = `${currentZoom}%`;
+    control.title = readOnly ? '只读预览不能更改远程界面缩放' :
+      currentSizeMode !== 'fit' ? '切换到自适应模式后可调整缩放' : '远程界面缩放';
+  };
+  const change = (delta) => {
+    currentZoom = Math.max(50, Math.min(200, currentZoom + delta));
+    try { localStorage.setItem('gci.viewZoom', String(currentZoom)); } catch { /* 忽略 */ }
+    updateZoomControls();
+    if (viewportSync) viewportSync();
+  };
+  out.addEventListener('click', () => change(-10));
+  input.addEventListener('click', () => change(10));
+  updateZoomControls();
 }
 
 /* ---------- 视频流设置（#22）：播放路径 + 解码偏好 ---------- */
@@ -441,6 +473,7 @@ function main() {
 
   // #17：视图尺寸模式切换（自适应/原始尺寸，双模式同步）+ 新鲜度指示
   setupSizeToggle(session, videoView);
+  setupZoomControls(readOnly);
   // 自适应视口跟随：舞台尺寸回传宿主覆盖目标页视口
   setupViewportSync(client, session, videoView, readOnly);
   setInterval(updateFreshness, 250);

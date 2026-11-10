@@ -23,7 +23,10 @@ Future<void> waitFor(pp.Page page, String expression) async {
       engine:v?._engine,error:v?.lastError,aus:v?.ausReceived,keys:v?.keyAusReceived,
       missing:v?.mseMissingSps,bytes:v?.mseBytesAppended,
       mediaError:v?.video.error?.message,ready:v?.video.readyState,paused:v?.video.paused,
-      time:v?.video.currentTime,buffer:v?.video.buffered.length};
+      time:v?.video.currentTime,buffer:v?.video.buffered.length,
+      layout:[v?.viewportWidth,v?.viewportHeight,v?.deviceScaleFactor],
+      pixels:[v?.video.videoWidth,v?.video.videoHeight],
+      stage:[document.getElementById("stage-video")?.clientWidth,document.getElementById("stage-video")?.clientHeight]};
   })())'''),
   );
   throw StateError('等待失败：$expression');
@@ -320,6 +323,13 @@ Future<void> main(List<String> args) async {
     final late = await browser.newPage();
     await late.goto(url, wait: pp.Until.load);
     await waitFor(late, 'window.__remote.videoView.video.currentTime > 0');
+    if (dpr > 1) {
+      await waitFor(late, '''(() => {
+        const v=window.__remote.videoView.video,c=document.createElement('canvas');
+        c.width=c.height=1;const x=c.getContext('2d');x.drawImage(v,10,10,1,1,0,0,1,1);
+        const p=x.getImageData(0,0,1,1).data;return p[2]>180 && p[0]<80;
+      })()''');
+    }
     stdout.writeln(
       'PASS late join: second HTTP MSE client plays the existing stream.',
     );

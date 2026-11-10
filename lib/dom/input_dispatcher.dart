@@ -74,6 +74,10 @@ Map<String, dynamic> validateInputPayload(Object? data) {
       }
       _requireNum(payload, 'x');
       _requireNum(payload, 'y');
+      final buttons = payload['buttons'];
+      if (buttons != null && (buttons is! int || buttons < 0 || buttons > 31)) {
+        throw InputPayloadException('mouse buttons 必须是 0-31 的按键状态');
+      }
     case 'wheel':
       _requireNum(payload, 'x');
       _requireNum(payload, 'y');
@@ -94,7 +98,43 @@ Map<String, dynamic> validateInputPayload(Object? data) {
   return payload;
 }
 
-/// 把一条已校验的 input payload 下发为 CDP Input 域可信事件。
+/// 记录各远程端持有的按键，断线或停止会话时释放。
+class RemoteMouseButtons {
+  final _held = <int, Map<String, dynamic>>{};
+
+  void record(int clientId, Map<String, dynamic> payload) {
+    if (payload['kind'] != 'mouse') return;
+    if (payload['action'] == 'up' || payload['buttons'] == 0) {
+      _held.remove(clientId);
+    } else if (payload['action'] == 'down') {
+      _held[clientId] = {
+        'x': payload['x'],
+        'y': payload['y'],
+        'button': payload['button'] ?? 'left',
+      };
+    } else if (_held.containsKey(clientId)) {
+      _held[clientId]!.addAll({'x': payload['x'], 'y': payload['y']});
+    }
+  }
+
+  Future<void> release(CdpPage page, {int? clientId}) async {
+    final ids = clientId == null ? _held.keys.toList() : [clientId];
+    final pending = [
+      for (final id in ids)
+        if (_held.containsKey(id)) _held.remove(id)!,
+    ];
+    for (final point in pending) {
+      await dispatchInput(page, {
+        'kind': 'mouse',
+        'action': 'up',
+        ...point,
+        'buttons': 0,
+      });
+    }
+  }
+}
+
+/// 下发到目标页面，不移动系统鼠标。
 Future<void> dispatchInput(CdpPage page, Map<String, dynamic> payload) async {
   switch (payload['kind']) {
     case 'mouse':
@@ -107,6 +147,9 @@ Future<void> dispatchInput(CdpPage page, Map<String, dynamic> payload) async {
         'type': type,
         'x': (payload['x'] as num).toDouble(),
         'y': (payload['y'] as num).toDouble(),
+        if (payload['buttons'] != null) 'buttons': payload['buttons'],
+        if (type == 'mouseMoved' && (payload['buttons'] as int? ?? 0) != 0)
+          'button': payload['button'] ?? 'left',
         if (type != 'mouseMoved') ...{
           'button': payload['button'] ?? 'left',
           'clickCount': payload['clickCount'] ?? 1,

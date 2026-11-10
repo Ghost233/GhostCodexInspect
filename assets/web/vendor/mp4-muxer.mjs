@@ -1723,7 +1723,8 @@ addSampleToTrack_fn = function(track, sample) {
     if (__privateGet(this, _options).fastStart === "fragmented") {
       let mostImportantTrack = __privateGet(this, _videoTrack) ?? __privateGet(this, _audioTrack);
       const chunkDuration = __privateGet(this, _options).minFragmentDuration ?? 1;
-      if (track === mostImportantTrack && sample.type === "key" && currentChunkDuration >= chunkDuration) {
+      // GhostCodexInspect: duration 0 emits per-frame fragments for live remote input.
+      if (track === mostImportantTrack && (sample.type === "key" || chunkDuration === 0) && currentChunkDuration >= chunkDuration) {
         beginNewChunk = true;
         __privateMethod(this, _finalizeFragment, finalizeFragment_fn).call(this);
       }

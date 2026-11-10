@@ -49,13 +49,25 @@ Future<void> applyViewportOverride(
   int width,
   int height, {
   double deviceScaleFactor = 1,
-}) {
-  return page.send('Emulation.setDeviceMetricsOverride', {
+  double? nativeDeviceScaleFactor,
+}) async {
+  await page.send('Emulation.setDeviceMetricsOverride', {
     'width': width,
     'height': height,
     'deviceScaleFactor': deviceScaleFactor,
     'mobile': false,
+    if (nativeDeviceScaleFactor != null) ...{
+      'scale': 1,
+      'dontSetVisibleSize': true,
+    },
   });
+  if (nativeDeviceScaleFactor != null) {
+    // Chromium 实时采集取原生表面；让表面容纳手机要求的实际像素。
+    await page.send('Emulation.setVisibleSize', {
+      'width': (width * deviceScaleFactor / nativeDeviceScaleFactor).ceil(),
+      'height': (height * deviceScaleFactor / nativeDeviceScaleFactor).ceil(),
+    });
+  }
 }
 
 /// 清除视口覆盖（会话停止时恢复原视口）。best effort：页面可能已

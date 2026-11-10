@@ -289,7 +289,7 @@ class _SessionCard extends StatelessWidget {
                 label: '编码器',
                 value: controller.videoEncoderKind,
                 items: const [
-                  (VideoEncoderKind.auto, '自动（硬编优先）'),
+                  (VideoEncoderKind.auto, '自动（低延迟）'),
                   (VideoEncoderKind.hardware, '强制硬编'),
                   (VideoEncoderKind.software, '强制软编'),
                 ],
@@ -515,7 +515,7 @@ class _BitrateSlider extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text('码率', style: Theme.of(context).textTheme.bodySmall),
+        Text('码率上限（VBR）', style: Theme.of(context).textTheme.bodySmall),
         SizedBox(
           width: 220,
           child: Slider(

@@ -218,6 +218,8 @@ export class VideoView {
     this.viewportWidth = 0;
     this.viewportHeight = 0;
     this.deviceScaleFactor = 1;
+    this.frameRate = 30;
+    this._streamId = null;
     this.framesDecoded = 0;
     this.lastError = null;
     this._decoder = null;
@@ -308,10 +310,14 @@ export class VideoView {
     if (type === 'videoMeta') {
       const meta = typeof payload === 'string' ? JSON.parse(payload) : payload;
       const newCodec = meta.codec || 'h264';
-      if (newCodec !== this.codec) {
+      if (newCodec !== this.codec || (meta.streamId !== undefined && meta.streamId !== this._streamId)) {
         this.codec = newCodec;
-        this._teardownEngines(); // 格式变了必须重建解码器
+        this._teardownEngines();
+        this._pts = 0;
+        this._sps = this._pps = this._vps = this._seqHeader = null;
       }
+      this._streamId = meta.streamId ?? this._streamId;
+      this.frameRate = meta.frameRate || 30;
       this.viewportWidth = meta.viewportWidth || 0;
       this.viewportHeight = meta.viewportHeight || 0;
       this.deviceScaleFactor = meta.deviceScaleFactor || 1;
@@ -436,7 +442,7 @@ export class VideoView {
     }
     if (!this._hasKey && !key) return;
     if (key) this._hasKey = true;
-    this._pts += 33333;
+    this._pts += Math.round(1000000 / this.frameRate);
     try {
       this._decoder.decode(new EncodedVideoChunk({
         type: key ? 'key' : 'delta',
@@ -482,13 +488,17 @@ export class VideoView {
       if (this.codec === 'h264') this._codecString = codecStringFromSps(this._sps);
       const mediaSource = new MediaSource();
       this.video.src = URL.createObjectURL(mediaSource);
-      this._mse = { mediaSource, sourceBuffer: null, muxer: null, queue: [], description };
+      const mse = { mediaSource, sourceBuffer: null, muxer: null, queue: [], pendingAus: [], description };
+      this._mse = mse;
       mediaSource.addEventListener('sourceopen', () => {
+        if (this._mse !== mse) return;
         try {
           const sb = mediaSource.addSourceBuffer(this._mseMime());
           sb.mode = 'segments';
           sb.addEventListener('updateend', () => {
-            const next = this._mse.queue.shift();
+            if (this._mse !== mse) return;
+            this._followMse();
+            const next = mse.queue.shift();
             if (next) sb.appendBuffer(next);
           });
           this._mse.sourceBuffer = sb;
@@ -517,13 +527,20 @@ export class VideoView {
           this.video.classList.remove('hidden');
           this.host.classList.add('has-frame');
           this._feedMseAu(au, true); // 补喂首帧
+          for (const pending of mse.pendingAus.splice(0)) {
+            this._feedMseAu(pending, isKeyframeAu(pending, this.codec));
+          }
         } catch (err) {
           this.lastError = 'sourceopen: ' + (err && err.stack || err);
         }
       });
       return;
     }
-    if (!this._mse.muxer) return; // sourceopen 未到
+    if (!this._mse.muxer) {
+      if (key) this._mse.pendingAus.length = 0;
+      this._mse.pendingAus.push(au);
+      return;
+    }
     this._feedMseAu(au, key);
   }
 
@@ -533,13 +550,14 @@ export class VideoView {
       payload = this._msePayload(au);
     } catch (err) { this.lastError = 'payload: ' + err; return; }
     if (!payload || !payload.length) { this.lastError = 'payload empty'; return; }
-    this._pts += 33333;
+    const duration = Math.round(1000000 / this.frameRate);
+    this._pts += duration;
     try {
       this._mse.muxer.addVideoChunkRaw(
         payload,
         key ? 'key' : 'delta',
         this._pts,
-        33333,
+        duration,
         key ? {
           decoderConfig: {
             codec: this._codecString || CODEC_CANDIDATES[this.codec][0],
@@ -552,6 +570,17 @@ export class VideoView {
     this.framesDecoded++;
   }
 
+  _followMse() {
+    const ranges = this.video.buffered;
+    if (!ranges?.length) return;
+    const start = ranges.start(ranges.length - 1);
+    const end = ranges.end(ranges.length - 1);
+    if (end - this.video.currentTime > 0.1 || this.video.currentTime < start) {
+      this.video.currentTime = Math.max(start, end - 0.02);
+    }
+    if (this.video.paused) this.video.play()?.catch(() => {});
+  }
+
   // ---- 输入（坐标按显示元素尺寸 → 源视口换算） ----
 
   focusKeyboard() {
@@ -559,8 +588,9 @@ export class VideoView {
   }
 
   _bindInput() {
-    bindPointerInput(this.host, {
+    this.pointer = bindPointerInput(this.host, {
       toSource: (e) => this._toSource(e),
+      getRect: () => (this._engine === 'mse' ? this.video : this.canvas).getBoundingClientRect(),
       send: (payload) => this.client.sendInput(payload),
       keyboard: this._keyboard,
     });

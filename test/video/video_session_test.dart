@@ -123,7 +123,7 @@ void main() {
     return (ws, stream);
   }
 
-  test('静止页面只收到一张截图也能持续输出首屏和关键帧', () async {
+  test('静止页面先输出首屏，随后停止重复编码节省流量', () async {
     final lookup = await locator.find();
     if (!lookup.available) return;
     final relay = RelayServer(staticDir: 'assets/web');
@@ -146,7 +146,10 @@ void main() {
     );
     await Future<void>.delayed(const Duration(seconds: 2));
     expect(session.status.ausSent, greaterThan(5));
-    expect(session.status.idrAusSent, greaterThanOrEqualTo(2));
+    expect(session.status.idrAusSent, greaterThanOrEqualTo(1));
+    final bytes = session.status.bytesSent;
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    expect(session.status.bytesSent, bytes, reason: '画面未变化时不应重复发视频');
   });
 
   test('VideoSession：真 ffmpeg 编码链路，meta + AU 信封广播、stop 幂等', () async {
@@ -325,6 +328,38 @@ void main() {
     await stream2.drain<void>();
   }, timeout: const Timeout(Duration(seconds: 60)));
 
+  test('启动期间更改视口，按新物理尺寸重启采集，不沿用旧表面', () async {
+    final lookup = await locator.find();
+    if (!lookup.available) return;
+    final relay = RelayServer(staticDir: 'assets/web');
+    await relay.start();
+    addTearDown(relay.stop);
+    final page = _FakeCdpPage();
+    final session = VideoSession(page: page, relay: relay);
+    await session.start();
+    addTearDown(session.stop);
+    final (ws, _) = await connectAuthed(relay);
+    addTearDown(() => ws.sink.close());
+    ws.sink.add(
+      RelayEnvelope(
+        channel: RelayChannel.ctrl,
+        type: RelayMessageType.setViewport,
+        seq: 1,
+        data: {'width': 390, 'height': 778, 'deviceScaleFactor': 3},
+      ).encode(),
+    );
+    await waitFor(
+      () => page.sent.where((c) => c.$1 == 'Page.startScreencast').length >= 2,
+      timeoutSeconds: 12,
+    );
+    final start = page.sent
+        .lastWhere((c) => c.$1 == 'Page.startScreencast')
+        .$2!;
+    expect(start['maxWidth'], 1170);
+    expect(start['maxHeight'], 2334);
+    expect(page.sent.any((c) => c.$1 == 'Emulation.setVisibleSize'), isTrue);
+  });
+
   test('远程端 ctrl setViewport 覆盖页面视口并重发 meta（自适应跟随）', () async {
     final lookup = await locator.find();
     if (!lookup.available) return; // 无 ffmpeg 的机器跳过
@@ -360,6 +395,8 @@ void main() {
       'height': 900,
       'deviceScaleFactor': 1,
       'mobile': false,
+      'scale': 1,
+      'dontSetVisibleSize': true,
     });
 
     await waitFor(
@@ -452,11 +489,11 @@ void main() {
       }
     });
     await waitFor(() => session.status.encoding, timeoutSeconds: 10);
-    // 默认 30fps → everyNthFrame=2（合成器源 ~60fps）
+    // 所有帧率都保留每次重绘，避免丢掉静止页面唯一的点击更新。
     final firstStart = page.sent.firstWhere(
       (c) => c.$1 == 'Page.startScreencast',
     );
-    expect(firstStart.$2?['everyNthFrame'], 2);
+    expect(firstStart.$2?['everyNthFrame'], 1);
 
     // 切 60fps：管线重启（stopScreencast → startScreencast nth=1）
     ws.sink.add(
@@ -501,7 +538,7 @@ void main() {
     );
     expect(session.status.frameRate, 60);
 
-    // 切 15fps：nth=4
+    // 切 15fps：采集仍不漏重绘，编码 ticker 限制到 15fps。
     ws.sink.add(
       RelayEnvelope(
         channel: RelayChannel.ctrl,
@@ -519,7 +556,7 @@ void main() {
           .where((c) => c.$1 == 'Page.startScreencast')
           .last
           .$2?['everyNthFrame'],
-      4,
+      1,
     );
     expect(session.status.frameRate, 15);
 

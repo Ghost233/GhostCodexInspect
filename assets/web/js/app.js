@@ -18,11 +18,14 @@ const $ = (id) => document.getElementById(id);
  * 改为完全自动跟随。
  */
 let currentMode = null;
+let resetPointerInput = () => {};
+let currentTouchMode = 'direct';
 
 const MODE_LABELS = { dom: 'DOM 重绘模式', video: '视频流模式' };
 
 function applyMode(mode) {
   if (mode === currentMode) return;
+  resetPointerInput();
   currentMode = mode;
   const panes = { dom: $('stage-dom'), video: $('stage-video') };
   for (const [m, pane] of Object.entries(panes)) {
@@ -172,6 +175,50 @@ function setupZoomControls(readOnly) {
 
 /* ---------- 视频流设置（#22）：播放路径 + 解码偏好 ---------- */
 
+function setupMoreSettings() {
+  const menu = $('more-settings');
+  document.addEventListener('pointerdown', (event) => {
+    if (menu.open && !menu.contains(event.target)) menu.open = false;
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && menu.open) {
+      menu.open = false;
+      menu.querySelector('summary').focus();
+    }
+  });
+}
+
+function setupPointerMode(inputLayer, videoView, readOnly) {
+  const select = $('input-mode');
+  const controls = $('mouse-controls');
+  const drag = $('mouse-drag');
+  $('pointer-settings').classList.toggle('hidden', readOnly);
+  if (readOnly) return;
+  const pointers = [inputLayer.pointer, videoView.pointer];
+  const active = () => currentMode === 'video' ? videoView.pointer : inputLayer.pointer;
+  const update = () => drag.setAttribute('aria-pressed', String(active().dragLocked));
+  for (const pointer of pointers) pointer.onChange = update;
+  resetPointerInput = () => { for (const pointer of pointers) pointer.cancel(); update(); };
+  const apply = () => {
+    currentTouchMode = select.value;
+    for (const pointer of pointers) pointer.setMode(select.value);
+    controls.classList.toggle('hidden', select.value !== 'trackpad');
+    $('trackpad-hint').classList.toggle('hidden', select.value !== 'trackpad');
+    document.querySelector('.cursor-dot')?.classList.add('hidden');
+    update();
+  };
+  try {
+    if (localStorage.getItem('gci.touchMode') === 'trackpad') select.value = 'trackpad';
+  } catch { /* 隐私模式等忽略 */ }
+  select.addEventListener('change', () => {
+    apply();
+    try { localStorage.setItem('gci.touchMode', select.value); } catch { /* 忽略 */ }
+  });
+  $('mouse-right').addEventListener('click', () => active().click('right'));
+  drag.addEventListener('click', () => active().toggleDrag());
+  apply();
+}
+
 const PLAYBACK_PATH_KEY = 'gci.videoPlaybackPath';
 const DECODE_PREF_KEY = 'gci.videoDecodePref';
 const FPS_KEY = 'gci.videoFrameRate';
@@ -293,6 +340,7 @@ function setupCursorDot() {
   const stage = document.querySelector('.stage');
   if (!stage) return;
   stage.addEventListener('mousemove', (e) => {
+    if (currentTouchMode === 'trackpad') { dot.classList.add('hidden'); return; }
     dot.classList.remove('hidden');
     dot.style.left = `${e.clientX}px`;
     dot.style.top = `${e.clientY}px`;
@@ -399,6 +447,7 @@ function formatTrafficBytes(bytes) {
 
 function main() {
   setupCursorDot();
+  setupMoreSettings();
 
   const host = $('replayer-host');
   const session = new DomReplaySession(host);
@@ -428,6 +477,7 @@ function main() {
       setConnState(state, detail);
       updateLatency(client);
       if (state === 'disconnected' || state === 'auth_failed') {
+        resetPointerInput();
         fetch('./auth', { cache: 'no-store' })
           .then((response) => { if (response.status === 401) location.reload(); })
           .catch(() => {});
@@ -467,6 +517,7 @@ function main() {
       } else if (envelope.ch === 'ctrl' && envelope.t === 'shells') {
         // #16：shell 页签栏；点击切换时先复位三个视图，再请求宿主重建会话
         renderShellTabs(envelope.data, client, () => {
+          resetPointerInput();
           const placeholder = $('stage-placeholder');
           if (placeholder) placeholder.classList.remove('hidden');
           videoView.reset();
@@ -503,6 +554,7 @@ function main() {
   const inputLayer = readOnly
     ? null
     : new InputCaptureLayer(host, session, client);
+  setupPointerMode(inputLayer, videoView, readOnly);
 
   const keyboardButton = $('keyboard-toggle');
   keyboardButton.classList.toggle('hidden', readOnly);

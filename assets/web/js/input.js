@@ -11,6 +11,8 @@
  * （mouse / wheel / text / key 四种 kind）。
  */
 
+import { Trackpad } from './trackpad.js';
+
 /** 可打印键之外的转发白名单（与宿主 kKeyEventParams 对齐） */
 const KEY_FORWARD_SET = new Set([
   'Backspace', 'Enter', 'Tab', 'Escape',
@@ -119,7 +121,8 @@ export class KeyboardForwarder {
 }
 
 /** 两种画面共享的鼠标/触摸输入，避免浏览器兼容鼠标事件重复或丢失。 */
-export function bindPointerInput(target, { toSource, send, keyboard, isEditable = (point) => keyboard.contains?.(point) || false }) {
+export function bindPointerInput(target, { toSource, send, keyboard, getRect = () => target.getBoundingClientRect(), isEditable = (point) => keyboard.contains?.(point) || false }) {
+  const trackpad = new Trackpad(target, { toSource, getRect, send, keyboard, isEditable });
   let pointerId = null;
   let lastPoint = null;
   let button = 'left';
@@ -127,6 +130,7 @@ export function bindPointerInput(target, { toSource, send, keyboard, isEditable 
   let start = null;
   target.style.touchAction = 'none';
   target.addEventListener('pointerdown', (e) => {
+    if (trackpad.handles(e)) return;
     if (e.isPrimary === false || pointerId !== null) return;
     const point = toSource(e);
     if (!point) return;
@@ -140,6 +144,7 @@ export function bindPointerInput(target, { toSource, send, keyboard, isEditable 
     if (e.pointerType !== 'touch') keyboard.focus(undefined, isEditable(point));
   });
   target.addEventListener('pointermove', (e) => {
+    if (trackpad.handles(e)) return;
     if (e.isPrimary === false || (e.pointerType === 'touch' && pointerId !== e.pointerId)) return;
     const point = toSource(e);
     if (!point) return;
@@ -147,9 +152,11 @@ export function bindPointerInput(target, { toSource, send, keyboard, isEditable 
     const now = performance.now();
     if (now - lastMove < MOUSE_MOVE_MIN_MS) return;
     lastMove = now;
-    send({ kind: 'mouse', action: 'move', ...point });
+    send({ kind: 'mouse', action: 'move', ...point,
+      ...(pointerId !== null ? { button, buttons: button === 'right' ? 2 : button === 'middle' ? 4 : 1 } : { buttons: 0 }) });
   });
   const finish = (e, cancelled) => {
+    if (trackpad.handles(e)) return;
     if (pointerId !== e.pointerId) return;
     e.preventDefault();
     const point = toSource(e) || lastPoint;
@@ -174,6 +181,7 @@ export function bindPointerInput(target, { toSource, send, keyboard, isEditable 
     send({ kind: 'wheel', ...point, deltaX: e.deltaX * unit, deltaY: e.deltaY * unit });
   }, { passive: false });
   target.addEventListener('contextmenu', (e) => e.preventDefault());
+  return trackpad;
 }
 
 export class InputCaptureLayer {
@@ -200,8 +208,9 @@ export class InputCaptureLayer {
       onKey: (key) => this._send({ kind: 'key', key }),
     });
 
-    bindPointerInput(overlay, {
+    this.pointer = bindPointerInput(overlay, {
       toSource: (e) => this._toSource(e.clientX, e.clientY),
+      getRect: () => host.querySelector('iframe')?.getBoundingClientRect(),
       send: (payload) => this._send(payload),
       keyboard: this.keyboard,
       isEditable: (point) => {

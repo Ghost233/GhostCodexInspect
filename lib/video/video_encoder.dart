@@ -6,17 +6,17 @@
 /// 软编、实时性差，不支持（#25 决策）。
 ///
 /// 编码器选择：VideoToolbox 硬编（CPU 占用≈0）/ 软编（兼容兜底）/
-/// auto（硬编探测失败自动回退软编；av1 无硬编直接软编）。
+/// auto（H.264 优先低延迟软编，其余先硬编；av1 无硬编）。
 ///
-/// AU 切分：h264/hevc 走 Annex B 起始码切分（无 B 帧、一进一出，新 VCL
-/// NAL 到来时发出上一 AU）；av1 走 IVF 容器拆帧（帧载荷即低开销 OBU 流）。
+/// AU 切分：h264/hevc 以 AUD 分隔完整画面，同帧的多个 VCL 切片保持在一起；
+/// av1 走 IVF 容器拆帧（帧载荷即低开销 OBU 流）。
 library;
 
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
-/// 编码器偏好：auto（硬编失败回退软编）/ hardware（VideoToolbox）/
+/// 编码器偏好：auto（按实时性选择）/ hardware（VideoToolbox）/
 /// software（软编）。
 enum VideoEncoderKind { auto, hardware, software }
 
@@ -61,7 +61,7 @@ const _codecPlans = {
   VideoCodecKind.h264: _CodecPlan(
     hwEncoder: 'h264_videotoolbox',
     swEncoder: 'libx264',
-    swArgs: ['-preset', 'veryfast', '-tune', 'zerolatency'],
+    swArgs: ['-preset', 'ultrafast', '-tune', 'zerolatency'],
     outFormat: 'h264',
   ),
   VideoCodecKind.hevc: _CodecPlan(
@@ -98,7 +98,7 @@ class FfmpegVideoEncoder {
   /// 编码器偏好。
   final VideoEncoderKind kind;
 
-  /// 码率（kbps；null = 编码器自动）。
+  /// VBR 峰值上限（kbps；null = 不设上限），不作为平均码率目标。
   final int? bitrateKbps;
 
   /// GOP 长度（关键帧间隔帧数；@nominalFps 下 24≈0.8s 一个关键帧，
@@ -109,6 +109,7 @@ class FfmpegVideoEncoder {
   final int nominalFps;
 
   Process? _process;
+  bool _writePending = false;
   StreamSubscription<List<int>>? _stdoutSub;
   final _auController = StreamController<Uint8List>.broadcast();
 
@@ -128,6 +129,10 @@ class FfmpegVideoEncoder {
   Future<void> start() async {
     if (_process != null) return;
     final plan = _codecPlans[codec]!;
+    // H.264 实测软件实时管线的交互延迟更低；硬编仍可显式选择。
+    if (kind == VideoEncoderKind.auto && codec == VideoCodecKind.h264) {
+      if (await _spawn(plan.swEncoder, plan)) return;
+    }
     final hw = plan.hwEncoder;
     if (kind != VideoEncoderKind.software && hw != null) {
       final ok = await _spawn(hw, plan);
@@ -162,14 +167,26 @@ class FfmpegVideoEncoder {
       '-framerate', '$nominalFps',
       '-i', 'pipe:0',
       '-c:v', encoder,
+      // 原样输出输入帧；默认帧率同步会补出大量重复画面并挤占实时流量。
+      '-fps_mode', 'passthrough',
+      '-enc_time_base', '1:1000000',
       '-bf', '0', // 无 B 帧：一进一出，AU 切分与延迟都受益
       '-g', '$gopSize',
-      if (bitrateKbps != null) ...['-b:v', '${bitrateKbps}k'],
+      // 质量驱动的可变码率；静止帧不为凑目标平均码率消耗流量。
+      if (encoder != plan.swEncoder) ...['-q:v', '60'],
+      if (encoder == plan.swEncoder) ...[
+        '-crf',
+        codec == VideoCodecKind.av1 ? '30' : '23',
+      ],
+      if (bitrateKbps != null) ...[
+        '-maxrate',
+        '${bitrateKbps}k',
+        '-bufsize',
+        '${bitrateKbps}k',
+      ],
       // VT 硬编：realtime 提示实时编码（默认 false 会内部攒帧缓冲，
       // 是远程端 1s+ 延迟的主因，2026-10-19 用户反馈）；prio_speed 优先速度；
-      // constant_bit_rate=false 显式 VBR（默认即 false，写明防升级回归）
-      // ——-b:v 在 VBR 下是目标平均码率，静态画面自动省带宽（2026-10-19
-      // 用户要求 VBR）
+      // constant_bit_rate=false，配合质量模式而非平均码率模式。
       if (encoder != plan.swEncoder) ...[
         '-realtime',
         '1',
@@ -181,7 +198,7 @@ class FfmpegVideoEncoder {
       if (encoder == plan.swEncoder) ...plan.swArgs,
       if (codec != VideoCodecKind.av1) ...[
         '-bsf:v',
-        'dump_extra=freq=keyframe',
+        'dump_extra=freq=keyframe,${codec == VideoCodecKind.h264 ? 'h264' : 'hevc'}_metadata=aud=insert',
       ],
       '-flush_packets', '1', // 每包冲刷输出缓冲，保证实时性
       '-f', plan.outFormat,
@@ -212,14 +229,16 @@ class FfmpegVideoEncoder {
                     return t == 1 || t == 5;
                   },
             startsUnit: codec == VideoCodecKind.hevc
-                ? (h) => [32, 33, 34, 35].contains((h >> 1) & 0x3f)
-                : (h) => [7, 8, 9].contains(h & 0x1f),
+                ? (h) => ((h >> 1) & 0x3f) == 35
+                : (h) => (h & 0x1f) == 9,
           ).add;
     _stdoutSub = process.stdout.listen(splitter);
 
-    // 启动探测：2s 内退出 = 该编码器不可用
+    // 软件编码无需等硬件探测窗口；只确认进程没有立即退出。
     final exit = await process.exitCode.timeout(
-      const Duration(seconds: 2),
+      encoder == plan.swEncoder
+          ? const Duration(milliseconds: 100)
+          : const Duration(seconds: 2),
       onTimeout: () => -1, // 仍在运行
     );
     if (exit != -1) {
@@ -232,7 +251,7 @@ class FfmpegVideoEncoder {
     }
     unawaited(
       process.exitCode.then((code) {
-        if (_process == null) return; // 正常 stop
+        if (_process != process) return; // 已停止或已切到另一条编码管线
         lastStderr = stderrBuf.toString();
         _process = null;
         _auController.addError(StateError('ffmpeg 退出（exit=$code）：$lastStderr'));
@@ -242,13 +261,26 @@ class FfmpegVideoEncoder {
   }
 
   /// 喂入一帧 JPEG（CDP screencast 的原始字节，非 base64）。
-  void writeFrame(Uint8List jpeg) {
+  bool writeFrame(Uint8List jpeg) {
     final process = _process;
-    if (process == null) return;
+    if (process == null || _writePending) return false;
     try {
       process.stdin.add(jpeg);
+      _writePending = true;
+      unawaited(
+        process.stdin.flush().then(
+          (_) {
+            if (_process == process) _writePending = false;
+          },
+          onError: (Object _) {
+            if (_process == process) _writePending = false;
+          },
+        ),
+      );
+      return true;
     } catch (_) {
       // 管道已断，由 exitCode 监听统一处理
+      return false;
     }
   }
 
@@ -256,13 +288,15 @@ class FfmpegVideoEncoder {
   Future<void> stop() async {
     final process = _process;
     _process = null;
+    _writePending = false;
     await _stdoutSub?.cancel();
     _stdoutSub = null;
     if (process != null) {
+      // 停会话时先终止进程，让待写入的管道立即解阻塞。
+      process.kill();
       try {
         await process.stdin.close();
       } catch (_) {}
-      process.kill();
     }
   }
 
@@ -324,10 +358,8 @@ class _AnnexBSplitter {
       if (headerIndex >= _buf.length) break; // NAL 头在下一块，等
       final isVcl = _isVcl(_buf[headerIndex]);
 
-      if ((isVcl || _startsUnit(_buf[headerIndex])) &&
-          _auHasVcl &&
-          _auStart != null) {
-        // 新帧或其前导参数集 → 上一 AU 完整发出，参数集归入新帧。
+      if (_startsUnit(_buf[headerIndex]) && _auHasVcl && _auStart != null) {
+        // AUD 标记下一张完整画面；参数集和同帧的所有切片都留在帧内。
         final au = Uint8List.fromList(_buf.sublist(_auStart!, start));
         if (au.isNotEmpty) _sink.add(au);
         _auStart = start;

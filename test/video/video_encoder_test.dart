@@ -49,6 +49,34 @@ void main() {
   const locator = FfmpegLocator();
 
   group('FfmpegVideoEncoder（真 ffmpeg 集成）', () {
+    test('一张截图只产生一个完整视频帧，不能把编码切片当作帧', () async {
+      final lookup = await locator.find();
+      if (!lookup.available) return;
+      final encoder = FfmpegVideoEncoder(
+        ffmpegPath: lookup.path!,
+        bitrateKbps: 2000,
+        kind: VideoEncoderKind.software,
+      );
+      await encoder.start();
+      addTearDown(encoder.stop);
+      final aus = <Uint8List>[];
+      final sub = encoder.accessUnits.listen(aus.add);
+      addTearDown(sub.cancel);
+      final jpeg = await makeJpeg(lookup.path!, 0);
+      var accepted = 0;
+      for (var i = 0; i < 12; i++) {
+        if (encoder.writeFrame(jpeg)) accepted++;
+        await Future<void>.delayed(const Duration(milliseconds: 33));
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(aus, isNotEmpty);
+      expect(
+        aus.length,
+        lessThanOrEqualTo(accepted),
+        reason: '同一视频帧的多个 VCL 切片必须放在同一个 AU 中',
+      );
+    });
+
     test('auto 模式启动并编码出含 SPS 与 IDR 的 AU 序列', () async {
       final lookup = await locator.find();
       if (!lookup.available) {

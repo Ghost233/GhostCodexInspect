@@ -113,6 +113,58 @@ void main() {
 
     setUp(() => page = FakeCdpPage());
 
+    test('断线只释放该远程端按住的鼠标，并使用最后移动位置', () async {
+      final state = RemoteMouseButtons();
+      state.record(1, {
+        'kind': 'mouse',
+        'action': 'down',
+        'x': 10,
+        'y': 20,
+        'button': 'left',
+      });
+      state.record(1, {
+        'kind': 'mouse',
+        'action': 'move',
+        'x': 30,
+        'y': 40,
+        'buttons': 1,
+      });
+      await state.release(page, clientId: 2);
+      expect(page.sent, isEmpty);
+      await state.release(page, clientId: 1);
+      expect(page.sent.single.$2!['type'], 'mouseReleased');
+      expect(page.sent.single.$2!['x'], 30.0);
+      expect(page.sent.single.$2!['buttons'], 0);
+      await state.release(page);
+      expect(page.sent, hasLength(1));
+    });
+
+    test('拖拽移动保持左键状态，非法按键状态被拒绝', () async {
+      await dispatchInput(
+        page,
+        validateInputPayload({
+          'kind': 'mouse',
+          'action': 'move',
+          'x': 20,
+          'y': 30,
+          'button': 'left',
+          'buttons': 1,
+        }),
+      );
+      expect(page.sent.single.$2!['buttons'], 1);
+      expect(page.sent.single.$2!['button'], 'left');
+      expect(
+        () => validateInputPayload({
+          'kind': 'mouse',
+          'action': 'move',
+          'x': 0,
+          'y': 0,
+          'buttons': -1,
+        }),
+        throwsA(isA<InputPayloadException>()),
+      );
+    });
+
     test('mouse down 映射为 Input.dispatchMouseEvent mousePressed', () async {
       await dispatchInput(
         page,

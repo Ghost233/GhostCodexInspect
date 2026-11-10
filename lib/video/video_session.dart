@@ -91,7 +91,7 @@ class VideoSession {
   final VideoCodecKind codec;
   final VideoEncoderKind encoderKind;
 
-  /// 码率（kbps）。
+  /// VBR 峰值上限（kbps）。
   final int bitrateKbps;
 
   /// screencast 截帧 JPEG 质量（见构造器注释）。
@@ -106,9 +106,8 @@ class VideoSession {
   /// 当前目标帧率（meta 回显与状态诊断用）。
   int get frameRate => _frameRate;
 
-  /// 目标帧率 → screencast everyNthFrame（源 ~60fps：15→4、30→2、60→1）。
-  static int everyNthFrameForFps(int fps) =>
-      (kMaxFrameRate / fps).round().clamp(1, kMaxFrameRate);
+  /// 保留每次重绘，帧率上限由编码 ticker 控制，避免遗漏静止页面的单次更新。
+  static int everyNthFrameForFps(int fps) => 1;
 
   /// #16：远程端请求切换 shell 页面时回调（宿主重建会话）。
   final void Function(String targetId)? onSwitchRequested;
@@ -123,12 +122,14 @@ class VideoSession {
   bool _active = false;
   bool _encoding = false;
   bool _resumeInFlight = false;
+  Future<void> _pipelineTask = Future<void>.value();
   int _viewportWidth = 0;
 
   /// 是否已对页面应用视口覆盖（stop 时据此恢复）。
   bool _viewportOverridden = false;
   int _viewportHeight = 0;
   double _deviceScaleFactor = 1;
+  double _nativeDeviceScaleFactor = 1;
   int _framesEncoded = 0;
   int _ausSent = 0;
   int _idrAusSent = 0;
@@ -141,6 +142,11 @@ class VideoSession {
   double _lastFrameLatencyMs = 0;
   Timer? _frameTicker;
   Uint8List? _latestFrame;
+  String? _latestFrameData;
+  int _lastChangeMs = 0;
+  final _cachedGop = <Uint8List>[];
+  int _streamId = 0;
+  final _mouseButtons = RemoteMouseButtons();
   String? _lastError;
   final _firstAu = Completer<void>();
 
@@ -197,11 +203,20 @@ class VideoSession {
       // 页面刚启动/已死等场景下失败可忽略，读真实视口即可
     }
     await _readViewport();
+    _nativeDeviceScaleFactor = _deviceScaleFactor;
     await _broadcastVideoMeta();
     _active = true;
     if (relay.authedClientCount > 0) {
-      await _resumeEncoding();
+      await _queuePipeline(_resumeEncoding);
     }
+  }
+
+  Future<void> _queuePipeline(Future<void> Function() task) {
+    final next = _pipelineTask.then((_) => task());
+    _pipelineTask = next.catchError((Object e) {
+      _lastError = '$e';
+    });
+    return next;
   }
 
   Future<void> _readViewport() async {
@@ -243,6 +258,7 @@ class VideoSession {
       );
       await encoder.start();
       _encoder = encoder;
+      _streamId = DateTime.now().microsecondsSinceEpoch;
       _auSub = encoder.accessUnits.listen(
         _onAccessUnit,
         onError: (Object e) => _lastError = '$e',
@@ -264,6 +280,8 @@ class VideoSession {
           kViewportMin,
           kViewportMaxHeight,
         ),
+        // 静止页面可能只重绘一次，按每 N 次重绘采样会漏掉点击后的唯一画面。
+        // 编码帧率由下游 ticker 限制，采集端必须保留每次变化。
         'everyNthFrame': everyNthFrameForFps(_frameRate),
       });
       _encoding = true;
@@ -273,17 +291,22 @@ class VideoSession {
         'quality': quality,
       });
       if (_latestFrame == null && seed['data'] is String) {
-        _latestFrame = base64Decode(seed['data'] as String);
+        _latestFrameData = seed['data'] as String;
+        _latestFrame = base64Decode(_latestFrameData!);
+        _lastChangeMs = DateTime.now().millisecondsSinceEpoch;
       }
       if (!_encoding || !_active) return;
-      // 静止页面可能只产生一次 screencastFrame。按编码时钟复用最近
-      // 截图，确保首个 AU 和后续关键帧均能输出，MSE 不会无限等帧。
+      // 变化后按编码时钟短暂复用截图，排空编码管线；静止超过一秒停发。
       _frameTicker = Timer.periodic(
         Duration(microseconds: (1000000 / _frameRate).round()),
         (_) {
           final frame = _latestFrame;
           if (!_encoding || frame == null) return;
-          encoder.writeFrame(frame);
+          // 变化后短时补帧以排空实时管线；静止时停编码，连接心跳独立运行。
+          if (DateTime.now().millisecondsSinceEpoch - _lastChangeMs > 1000) {
+            return;
+          }
+          if (!encoder.writeFrame(frame)) return;
           _framesEncoded++;
           _captureTimes.addLast(DateTime.now().millisecondsSinceEpoch / 1000);
           while (_captureTimes.length > 256) {
@@ -308,6 +331,8 @@ class VideoSession {
     _frameTicker?.cancel();
     _frameTicker = null;
     _latestFrame = null;
+    _latestFrameData = null;
+    _cachedGop.clear();
     _captureTimes.clear();
     await _frameSub?.cancel();
     _frameSub = null;
@@ -333,6 +358,7 @@ class VideoSession {
       'viewportHeight': _viewportHeight,
       'deviceScaleFactor': _deviceScaleFactor,
       'frameRate': _frameRate,
+      'streamId': _streamId,
     });
   }
 
@@ -343,7 +369,10 @@ class VideoSession {
           .send('Page.screencastFrameAck', {'sessionId': frame.sessionId})
           .catchError((_) => <String, dynamic>{}),
     );
+    if (frame.data == _latestFrameData) return;
+    _latestFrameData = frame.data;
     _latestFrame = base64Decode(frame.data);
+    _lastChangeMs = DateTime.now().millisecondsSinceEpoch;
   }
 
   void _onAccessUnit(Uint8List au) {
@@ -353,7 +382,12 @@ class VideoSession {
       _lastFrameLatencyMs =
           (DateTime.now().millisecondsSinceEpoch / 1000 - ts) * 1000;
     }
-    if (_isKeyframeAu(au)) _idrAusSent++;
+    final key = _isKeyframeAu(au);
+    if (key) {
+      _idrAusSent++;
+      _cachedGop.clear();
+    }
+    if (key || _cachedGop.isNotEmpty) _cachedGop.add(au);
     _bytesSent += au.length;
     if (!_firstAu.isCompleted) _firstAu.complete();
     relay.broadcast(
@@ -430,10 +464,19 @@ class VideoSession {
     // 晚到补种：videoMeta 立即发；画面从下一个关键帧起可解码（远程端
     // 在拿到关键帧前丢 delta AU）。
     unawaited(_broadcastVideoMeta());
+    // 静止时不再持续发视频；晚加入的远程端回放最近一个完整 GOP 即可出画面。
+    for (final au in _cachedGop) {
+      relay.sendTo(
+        clientId,
+        RelayChannel.video,
+        RelayMessageType.videoFrame,
+        base64Encode(au),
+      );
+    }
     // #27：首个已鉴权观众接入 → 启动编码管线
     if (relay.authedClientCount == 1 && !_encoding) {
       unawaited(
-        _resumeEncoding().catchError((Object e) {
+        _queuePipeline(_resumeEncoding).catchError((Object e) {
           _lastError = '$e';
           return null;
         }),
@@ -442,9 +485,14 @@ class VideoSession {
   }
 
   void _handleClientDisconnected(int clientId) {
+    unawaited(
+      _mouseButtons.release(page, clientId: clientId).catchError((Object e) {
+        _lastError = '$e';
+      }),
+    );
     // #27：最后一个已鉴权观众离开 → 暂停编码管线（省 CPU/带宽）
     if (_active && relay.authedClientCount == 0) {
-      unawaited(_pauseEncoding());
+      unawaited(_queuePipeline(_pauseEncoding));
     }
   }
 
@@ -467,7 +515,8 @@ class VideoSession {
       final size = parseViewportRequest(envelope.data);
       if (size == null) return;
       unawaited(
-        () async {
+        _queuePipeline(() async {
+          if (!_active) return;
           final wasEncoding = _encoding;
           if (wasEncoding) await _pauseEncoding();
           await applyViewportOverride(
@@ -475,6 +524,7 @@ class VideoSession {
             size.width,
             size.height,
             deviceScaleFactor: size.deviceScaleFactor,
+            nativeDeviceScaleFactor: _nativeDeviceScaleFactor,
           );
           _deviceScaleFactor = size.deviceScaleFactor;
           _viewportOverridden = true;
@@ -484,14 +534,14 @@ class VideoSession {
           } else {
             await _broadcastVideoMeta();
           }
-        }().catchError((Object e) {
+        }).catchError((Object e) {
           _lastError = '$e';
         }),
       );
       return;
     }
-    // 远程端帧率偏好（2026-10-19「15/30/60 可选」需求）：screencast 的
-    // everyNthFrame 与编码器 -framerate 都是启动参数，只能重启捕获与编码
+    // 远程端帧率偏好（2026-10-19「15/30/60 可选」需求）：编码器的
+    // -framerate 是启动参数，需要重启捕获与编码
     // 管线生效；重启后新 GOP 以 IDR 起，远程端解码器无缝衔接。videoMeta
     // 回显新 frameRate，其余远程端的帧率选择器据此同步。
     if (envelope.channel == RelayChannel.ctrl &&
@@ -500,7 +550,8 @@ class VideoSession {
       if (fps == null || fps == _frameRate) return;
       _frameRate = fps;
       unawaited(
-        () async {
+        _queuePipeline(() async {
+          if (!_active) return;
           if (_encoding) {
             await _pauseEncoding();
             // 重启期间最后一个观众可能恰好离开：恢复前复查
@@ -510,7 +561,7 @@ class VideoSession {
             }
           }
           await _broadcastVideoMeta();
-        }().catchError((Object e) {
+        }).catchError((Object e) {
           _lastError = '$e';
         }),
       );
@@ -522,11 +573,16 @@ class VideoSession {
     }
     final data = envelope.data;
     if (data is! Map) return;
+    final Map<String, dynamic> payload;
+    try {
+      payload = validateInputPayload(data);
+    } on InputPayloadException catch (e) {
+      _lastError = e.message;
+      return;
+    }
+    _mouseButtons.record(clientId, payload);
     unawaited(
-      dispatchInput(
-        page,
-        data.cast<String, dynamic>(),
-      ).catchError((Object e) => _lastError = '$e'),
+      dispatchInput(page, payload).catchError((Object e) => _lastError = '$e'),
     );
   }
 
@@ -534,7 +590,12 @@ class VideoSession {
   Future<void> stop() async {
     if (!_active) return;
     _active = false;
-    await _pauseEncoding();
+    try {
+      await _mouseButtons.release(page);
+    } catch (_) {
+      /* 页面可能已断开 */
+    }
+    await _queuePipeline(_pauseEncoding);
     if (_viewportOverridden) {
       _viewportOverridden = false;
       try {

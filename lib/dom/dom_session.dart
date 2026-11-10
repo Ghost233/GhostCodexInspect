@@ -85,6 +85,7 @@ class DomSession {
   /// 是否已对页面应用视口覆盖（stop 时据此恢复）。
   bool _viewportOverridden = false;
   bool _started = false;
+  final _mouseButtons = RemoteMouseButtons();
 
   /// 首份全量快照到达时完成（验收与断线重连检测用）。
   Completer<void> _firstFull = Completer<void>();
@@ -118,6 +119,7 @@ class DomSession {
     //    成功时触发 resync，让晚到的远程端立即拿到 meta+full（工单 #11）。
     relay.onClientMessage = _onClientMessage;
     relay.onClientAuthed = _onClientAuthed;
+    relay.onClientDisconnected = _onClientDisconnected;
 
     // 3. 注入采集器：当前文档立即 evaluate；addScriptToEvaluateOnNewDocument
     //    覆盖未来导航。
@@ -152,6 +154,11 @@ class DomSession {
   Future<void> stop() async {
     if (!_started) return;
     _started = false;
+    try {
+      await _mouseButtons.release(page);
+    } catch (_) {
+      /* 页面可能已断开 */
+    }
     if (_viewportOverridden) {
       _viewportOverridden = false;
       try {
@@ -167,6 +174,9 @@ class DomSession {
     }
     if (relay.onClientAuthed == _onClientAuthed) {
       relay.onClientAuthed = null;
+    }
+    if (relay.onClientDisconnected == _onClientDisconnected) {
+      relay.onClientDisconnected = null;
     }
     await _fileChooserGuard?.stop();
     _fileChooserGuard = null;
@@ -257,7 +267,7 @@ class DomSession {
           }),
         );
       case (RelayChannel.input, RelayMessageType.input):
-        _dispatchClientInput(envelope.data);
+        _dispatchClientInput(clientId, envelope.data);
       default:
         break; // ping/pong 等由中转自处理或忽略
     }
@@ -280,9 +290,18 @@ class DomSession {
     }
   }
 
-  Future<void> _dispatchClientInput(Object? data) async {
+  void _onClientDisconnected(int clientId) {
+    unawaited(
+      _mouseButtons.release(page, clientId: clientId).catchError((Object e) {
+        _lastError = '$e';
+      }),
+    );
+  }
+
+  Future<void> _dispatchClientInput(int clientId, Object? data) async {
     try {
       final payload = validateInputPayload(data);
+      _mouseButtons.record(clientId, payload);
       await dispatchInput(page, payload);
       _inputsDispatched++;
     } on InputPayloadException catch (e) {

@@ -161,10 +161,7 @@ class HostController extends ChangeNotifier {
       _relayPort = relayPort;
     }
     _relayAccessKey = prefs.getString(_kRelayAccessKeyKey);
-    if (_relayAccessKey == null || _relayAccessKey!.isEmpty) {
-      _relayAccessKey = RelayToken.generate();
-      await prefs.setString(_kRelayAccessKeyKey, _relayAccessKey!);
-    }
+    if (_relayAccessKey?.isEmpty ?? false) _relayAccessKey = null;
     _fixedRelayToken = prefs.getString(_kFixedRelayTokenKey);
     if (_fixedRelayToken?.isEmpty ?? false) _fixedRelayToken = null;
     final kbps = prefs.getInt(_kVideoBitrateKbpsKey);
@@ -249,7 +246,7 @@ class HostController extends ChangeNotifier {
   String? _relayAccessKey;
   String? _fixedRelayToken;
 
-  String? get relayAccessKey => _relayAccessKey;
+  bool get hasRelayAccessKey => _relayAccessKey != null;
   bool get useFixedRelayToken => _fixedRelayToken != null;
   String? get relayToken => launcher.relay.token ?? _fixedRelayToken;
 
@@ -294,6 +291,8 @@ class HostController extends ChangeNotifier {
   /// 带 token 的访问链接（未运行时为 null）。
   Uri? get accessUrl => launcher.relay.accessUrl;
 
+  List<Uri> get accessUrls => launcher.relay.accessUrls;
+
   /// 本机只读预览链接（追加 `ro=1`，远程端不挂输入捕获层）。
   Uri? get previewUrl {
     final url = accessUrl;
@@ -304,6 +303,7 @@ class HostController extends ChangeNotifier {
   /// 启动中转（默认绑 127.0.0.1）。
   Future<void> startRelay() => _run('启动中转', () async {
     if (_relayAccessKey == null) await loadSettings();
+    if (!hasRelayAccessKey) throw StateError('请先设置访问密钥');
     await launcher.startRelay(
       allowLanAccess: allowLanAccess,
       port: _relayPort,

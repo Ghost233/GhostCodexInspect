@@ -9,35 +9,51 @@ library;
 
 import 'cdp_client.dart';
 
-/// 视口尺寸的合法范围（防御远程端异常值）。
+/// 渲染画面的像素范围；缩小时逻辑视口可扩大，实际输出仍受此限制。
 const int kViewportMin = 64;
 const int kViewportMaxWidth = 7680;
 const int kViewportMaxHeight = 4320;
 
 /// 从 setViewport 信封 data 解析并校验尺寸；非法返回 null。
-({int width, int height})? parseViewportRequest(Object? data) {
+({int width, int height, double deviceScaleFactor})? parseViewportRequest(
+  Object? data,
+) {
   if (data is! Map) return null;
   final w = data['width'];
   final h = data['height'];
-  if (w is! num || h is! num) return null;
+  final scale = data['deviceScaleFactor'] ?? 1;
+  if (w is! num ||
+      h is! num ||
+      !w.isFinite ||
+      !h.isFinite ||
+      scale is! num ||
+      !scale.isFinite ||
+      scale < 0.1 ||
+      scale > 2) {
+    return null;
+  }
   final width = w.round();
   final height = h.round();
   if (width < kViewportMin ||
-      width > kViewportMaxWidth ||
+      width * scale > kViewportMaxWidth ||
       height < kViewportMin ||
-      height > kViewportMaxHeight) {
+      height * scale > kViewportMaxHeight) {
     return null;
   }
-  return (width: width, height: height);
+  return (width: width, height: height, deviceScaleFactor: scale.toDouble());
 }
 
-/// 应用视口覆盖。deviceScaleFactor 固定 1：远程端按 CSS px 显示与
-/// 映射输入，高倍率只会让编码帧变大、带宽变高。
-Future<void> applyViewportOverride(CdpPage page, int width, int height) {
+/// 应用视口覆盖：CSS 逻辑尺寸决定布局，像素比例限制渲染输出。
+Future<void> applyViewportOverride(
+  CdpPage page,
+  int width,
+  int height, {
+  double deviceScaleFactor = 1,
+}) {
   return page.send('Emulation.setDeviceMetricsOverride', {
     'width': width,
     'height': height,
-    'deviceScaleFactor': 1,
+    'deviceScaleFactor': deviceScaleFactor,
     'mobile': false,
   });
 }

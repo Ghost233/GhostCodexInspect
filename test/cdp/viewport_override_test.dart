@@ -6,12 +6,52 @@ void main() {
     expect(parseViewportRequest({'width': 1280, 'height': 720}), (
       width: 1280,
       height: 720,
+      deviceScaleFactor: 1.0,
     ));
     // 小数取整
     expect(parseViewportRequest({'width': 1280.6, 'height': 719.4}), (
       width: 1281,
       height: 719,
+      deviceScaleFactor: 1.0,
     ));
+  });
+
+  test('10% 缩放允许手机的大逻辑视口，实际画面仍受原像素上限约束', () {
+    expect(
+      parseViewportRequest({
+        'width': 3900,
+        'height': 7500,
+        'deviceScaleFactor': 0.1,
+      }),
+      (width: 3900, height: 7500, deviceScaleFactor: 0.1),
+    );
+    expect(
+      parseViewportRequest({
+        'width': 76800,
+        'height': 43200,
+        'deviceScaleFactor': 0.1,
+      }),
+      isNotNull,
+    );
+    expect(
+      parseViewportRequest({
+        'width': 76810,
+        'height': 43200,
+        'deviceScaleFactor': 0.1,
+      }),
+      isNull,
+    );
+    expect(parseViewportRequest({'width': 3900, 'height': 7500}), isNull);
+    for (final scale in [0.05, 2.05, double.nan, double.infinity, '0.1']) {
+      expect(
+        parseViewportRequest({
+          'width': 390,
+          'height': 750,
+          'deviceScaleFactor': scale,
+        }),
+        isNull,
+      );
+    }
   });
 
   test('parseViewportRequest：非法输入一律 null', () {

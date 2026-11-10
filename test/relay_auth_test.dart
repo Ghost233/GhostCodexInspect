@@ -147,22 +147,31 @@ void main() {
       expect(address.isLoopback, isTrue);
     });
 
-    test('纯选择逻辑：跳过回环与 IPv6，取第一个非回环 IPv4', () {
-      final lan = InternetAddress('192.168.1.23');
-      expect(pickLanAddress([InternetAddress.loopbackIPv4, lan]), lan);
+    test('访问地址包含各网卡 IPv4 与回环，去重并排除未监听的 IPv6', () {
       expect(
-        pickLanAddress([
+        pickAccessAddresses([
+          InternetAddress('192.168.1.23'),
+          InternetAddress('100.64.0.2'),
+          InternetAddress('192.168.1.23'),
           InternetAddress('fe80::1'),
           InternetAddress('::1'),
-          lan,
-        ]),
-        lan,
+          InternetAddress.anyIPv4,
+          InternetAddress.loopbackIPv4,
+        ], allowLanAccess: true).map((address) => address.address),
+        ['192.168.1.23', '100.64.0.2', '127.0.0.1'],
       );
     });
 
-    test('纯选择逻辑：只有回环时返回 null（绝不退回 0.0.0.0）', () {
-      expect(pickLanAddress([InternetAddress.loopbackIPv4]), isNull);
-      expect(pickLanAddress(const []), isNull);
+    test('关闭远程访问或没有网卡时，访问地址只包含回环', () {
+      expect(
+        pickAccessAddresses([
+          InternetAddress('192.168.1.23'),
+        ], allowLanAccess: false),
+        [InternetAddress.loopbackIPv4],
+      );
+      expect(pickAccessAddresses(const [], allowLanAccess: true), [
+        InternetAddress.loopbackIPv4,
+      ]);
     });
   });
 }

@@ -29,8 +29,7 @@ const MOUSE_MOVE_MIN_MS = 50; // 鼠标移动节流（远端轨迹无需满帧�
  * 行为：
  * - compositionstart~compositionend 期间：keydown 一律不转发（避免把
  *   拼音过程串当按键发下去），compositionend 时把成字文本走 text 通道；
- * - 非组合期：可打印字符 → text（preventDefault 保持 textarea 为空），
- *   白名单特殊键 → key；
+ * - 非组合期：桌面按键及手机 input 正文 → text，白名单特殊键 → key；
  * - 组合键（meta/ctrl）不放行（与本仓既有约定一致）。
  */
 export class KeyboardForwarder {
@@ -44,6 +43,8 @@ export class KeyboardForwarder {
     ta.setAttribute('aria-label', '远程键盘输入代理');
     ta.autocapitalize = 'off';
     ta.autocomplete = 'off';
+    ta.inputMode = 'text';
+    ta.enterKeyHint = 'enter';
     ta.spellcheck = false;
     host.appendChild(ta);
     this.proxy = ta;
@@ -70,14 +71,89 @@ export class KeyboardForwarder {
         onKey(e.key);
       }
     });
-    // 兜底：非合成路径残留进 textarea 的内容（如粘贴）清空，保持代理无状态
-    ta.addEventListener('input', () => { if (!this._composing) ta.value = ''; });
+    ta.addEventListener('beforeinput', (e) => {
+      if (this._composing || e.isComposing) return;
+      const key = {
+        deleteContentBackward: 'Backspace',
+        deleteContentForward: 'Delete',
+        insertLineBreak: 'Enter',
+        insertParagraph: 'Enter',
+      }[e.inputType];
+      if (key) {
+        e.preventDefault();
+        onKey(key);
+      }
+    });
+    ta.addEventListener('input', (e) => {
+      if (this._composing || e.isComposing) return;
+      if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') {
+        ta.value = '';
+        return;
+      }
+      // Android 输入法不一定提供可打印 keydown，正文以实际编辑值为准。
+      // compositionend 已转发并清空代理，随后的 input 不会重复发送。
+      if (ta.value === '\n') onKey('Enter');
+      else if (ta.value) onText(ta.value);
+      ta.value = '';
+    });
   }
 
   /** 把键盘焦点交给代理（点击视图后调用）。 */
   focus() {
-    this.proxy.focus();
+    this.proxy.focus({ preventScroll: true });
   }
+}
+
+/** 两种画面共享的鼠标/触摸输入，避免浏览器兼容鼠标事件重复或丢失。 */
+export function bindPointerInput(target, { toSource, send, keyboard }) {
+  let pointerId = null;
+  let lastPoint = null;
+  let button = 'left';
+  let lastMove = 0;
+  target.style.touchAction = 'none';
+  target.addEventListener('pointerdown', (e) => {
+    if (e.isPrimary === false || pointerId !== null) return;
+    const point = toSource(e);
+    if (!point) return;
+    e.preventDefault();
+    pointerId = e.pointerId;
+    lastPoint = point;
+    button = e.button === 2 ? 'right' : e.button === 1 ? 'middle' : 'left';
+    target.setPointerCapture(e.pointerId);
+    send({ kind: 'mouse', action: 'down', ...point, button, clickCount: 1 });
+    if (e.pointerType !== 'touch') keyboard.focus();
+  });
+  target.addEventListener('pointermove', (e) => {
+    if (e.isPrimary === false || (e.pointerType === 'touch' && pointerId !== e.pointerId)) return;
+    const point = toSource(e);
+    if (!point) return;
+    lastPoint = point;
+    const now = performance.now();
+    if (now - lastMove < MOUSE_MOVE_MIN_MS) return;
+    lastMove = now;
+    send({ kind: 'mouse', action: 'move', ...point });
+  });
+  const finish = (e, cancelled) => {
+    if (pointerId !== e.pointerId) return;
+    e.preventDefault();
+    const point = toSource(e) || lastPoint;
+    send({ kind: 'mouse', action: 'up', ...point, button, clickCount: 1 });
+    pointerId = null;
+    lastPoint = null;
+    // 先发送完整点击，再弹出软键盘，避免视口缩小改变松手坐标。
+    if (!cancelled && e.pointerType === 'touch') keyboard.focus();
+  };
+  target.addEventListener('pointerup', (e) => finish(e, false));
+  target.addEventListener('pointercancel', (e) => finish(e, true));
+  target.addEventListener('lostpointercapture', (e) => finish(e, true));
+  target.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const point = toSource(e);
+    if (!point) return;
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 800 : 1;
+    send({ kind: 'wheel', ...point, deltaX: e.deltaX * unit, deltaY: e.deltaY * unit });
+  }, { passive: false });
+  target.addEventListener('contextmenu', (e) => e.preventDefault());
 }
 
 export class InputCaptureLayer {
@@ -90,7 +166,6 @@ export class InputCaptureLayer {
     this.host = host;
     this.session = session;
     this.client = client;
-    this._lastMoveSentAt = 0;
 
     const overlay = document.createElement('div');
     overlay.id = 'input-capture-overlay';
@@ -105,11 +180,11 @@ export class InputCaptureLayer {
       onKey: (key) => this._send({ kind: 'key', key }),
     });
 
-    overlay.addEventListener('mousedown', (e) => this._onMouse(e, 'down'));
-    overlay.addEventListener('mouseup', (e) => this._onMouse(e, 'up'));
-    overlay.addEventListener('mousemove', (e) => this._onMouse(e, 'move'));
-    overlay.addEventListener('wheel', (e) => this._onWheel(e), { passive: false });
-    overlay.addEventListener('contextmenu', (e) => e.preventDefault());
+    bindPointerInput(overlay, {
+      toSource: (e) => this._toSource(e.clientX, e.clientY),
+      send: (payload) => this._send(payload),
+      keyboard: this.keyboard,
+    });
   }
 
   /** 事件 client 坐标 → 源视口 CSS px；超出 iframe 视觉范围时返回 null */
@@ -129,36 +204,4 @@ export class InputCaptureLayer {
     this.client.sendInput(payload);
   }
 
-  _onMouse(e, action) {
-    e.preventDefault();
-    if (action === 'down') this.keyboard.focus(); // 点击后代理接管键盘/IME
-    if (action === 'move') {
-      const now = performance.now();
-      if (now - this._lastMoveSentAt < MOUSE_MOVE_MIN_MS) return;
-      this._lastMoveSentAt = now;
-    }
-    const pt = this._toSource(e.clientX, e.clientY);
-    if (!pt) return;
-    const payload = { kind: 'mouse', action, x: pt.x, y: pt.y };
-    if (action !== 'move') {
-      payload.button = e.button === 2 ? 'right' : e.button === 1 ? 'middle' : 'left';
-      payload.clickCount = 1;
-    }
-    this._send(payload);
-  }
-
-  _onWheel(e) {
-    e.preventDefault();
-    const pt = this._toSource(e.clientX, e.clientY);
-    if (!pt) return;
-    // deltaMode：1=行、2=页，统一折算成像素（浏览器行高约 16px，页约 800px）
-    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 800 : 1;
-    this._send({
-      kind: 'wheel',
-      x: pt.x,
-      y: pt.y,
-      deltaX: e.deltaX * unit,
-      deltaY: e.deltaY * unit,
-    });
-  }
 }

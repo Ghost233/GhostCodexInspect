@@ -14,6 +14,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:ghost_codex_inspect/cdp/cdp.dart';
+import 'package:ghost_codex_inspect/cdp/viewport_override.dart';
 import 'package:ghost_codex_inspect/launcher/launcher.dart';
 import 'package:ghost_codex_inspect/relay/relay.dart';
 import 'package:ghost_codex_inspect/video/video.dart';
@@ -126,12 +127,12 @@ Future<void> main() async {
     }
 
     // 手机宽度下缩放目标视口，同时保持画面完整和输入坐标正确。
-    log('③b：手机尺寸下验证 50% / 200% 缩放…');
+    log('③b：手机尺寸下验证 10% / 200% 缩放（每次 5%）…');
     await remote.setViewport(const pp.DeviceViewport(width: 390, height: 844));
     for (final step in [
-      (button: '#zoom-out', clicks: 5, zoom: 50),
-      (button: '#zoom-in', clicks: 15, zoom: 200),
-      (button: '#zoom-out', clicks: 10, zoom: 100),
+      (button: '#zoom-out', clicks: 18, zoom: 10),
+      (button: '#zoom-in', clicks: 38, zoom: 200),
+      (button: '#zoom-out', clicks: 20, zoom: 100),
     ]) {
       for (var i = 0; i < step.clicks; i++) {
         await remote.click(step.button);
@@ -142,6 +143,23 @@ Future<void> main() async {
         const Duration(seconds: 15),
         zoom: step.zoom,
       );
+      final framesBeforeZoom = await remote.evaluate(
+        'window.__remote.videoView.framesDecoded',
+      );
+      try {
+        await _waitTrue(remote, '''
+        (() => {
+          const view = window.__remote.videoView;
+          return view.framesDecoded > $framesBeforeZoom + 2 &&
+            view.canvas.width > 0 && view.canvas.height > 0 &&
+            Math.abs(view.canvas.width / view.canvas.height -
+              view.viewportWidth / view.viewportHeight) < 0.01;
+        })()
+        ''', '${step.zoom}% 缩放后重新出帧');
+      } catch (_) {
+        await _dumpState(page, remote, session, '${step.zoom}% 出帧失败');
+        rethrow;
+      }
       final state = jsonDecode(
         await remote.evaluate('''
           (() => {
@@ -151,20 +169,57 @@ Future<void> main() async {
                                            clientY: rect.top + rect.height / 2});
             return JSON.stringify({label: document.getElementById('zoom-value').textContent,
               viewport: [view.viewportWidth, view.viewportHeight], center,
+              frame: [view.canvas.width, view.canvas.height],
               width: document.documentElement.scrollWidth, screen: innerWidth});
           })()
         ''') as String,
       ) as Map<String, dynamic>;
       final viewport = state['viewport'] as List;
       final center = state['center'] as Map?;
+      final frame = state['frame'] as List;
       final coordinatesOk =
           center != null &&
           ((center['x'] as num) - (viewport[0] as num) / 2).abs() < 1 &&
           ((center['y'] as num) - (viewport[1] as num) / 2).abs() < 1;
+      var clickOk = true;
+      if (step.zoom == 10) {
+        final rect = jsonDecode(
+          await page.evaluate(
+            "JSON.stringify(document.getElementById('counter-btn').getBoundingClientRect())",
+          ) as String,
+        ) as Map;
+        final x = (rect['left'] as num) + (rect['width'] as num) / 2;
+        final y = (rect['top'] as num) + (rect['height'] as num) / 2;
+        final point = jsonDecode(
+          await remote.evaluate('''
+          (() => {
+            const view = window.__remote.videoView;
+            const rect = view.canvas.getBoundingClientRect();
+            return JSON.stringify({x: rect.left + $x * rect.width / view.viewportWidth,
+              y: rect.top + $y * rect.height / view.viewportHeight});
+          })()
+        ''') as String,
+        ) as Map;
+        final beforeTitle = await page.evaluate('document.title');
+        await remote.mouse.click(
+          pp.Point(point['x'] as num, point['y'] as num),
+        );
+        clickOk = false;
+        for (var i = 0; i < 20; i++) {
+          if (await page.evaluate('document.title') != beforeTitle) {
+            clickOk = true;
+            break;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+      }
       final passed =
           ok &&
           state['label'] == '${step.zoom}%' &&
           coordinatesOk &&
+          clickOk &&
+          (frame[0] as num) <= kViewportMaxWidth &&
+          (frame[1] as num) <= kViewportMaxHeight &&
           state['width'] == state['screen'];
       log('   ${step.zoom}%：${passed ? "✓" : "✗"} $state');
       if (!passed) failures++;
@@ -422,6 +477,7 @@ Future<void> _dumpState(
       const stage = document.getElementById('stage-video');
       return JSON.stringify({
         metaViewport: [vv.viewportWidth, vv.viewportHeight],
+        frame: [vv.canvas.width, vv.canvas.height],
         stage: [stage.clientWidth, stage.clientHeight],
         sizeLabel: document.getElementById('size-toggle').textContent,
         framesDecoded: vv.framesDecoded,

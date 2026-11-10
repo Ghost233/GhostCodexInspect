@@ -1,5 +1,5 @@
-/// 中转台页面（工单 #13）：WS server 状态、token 展示与一键复制带
-/// token URL、访问密钥、「允许远程访问」开关、中继会话控制。
+/// 中转台页面（工单 #13）：WS server 状态、访问地址列表、token 展示、
+/// 密钥设置、「允许远程访问」开关、中继会话控制。
 library;
 
 import 'package:flutter/material.dart';
@@ -136,14 +136,22 @@ class _AccessCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final url = controller.accessUrl;
+    final urls = controller.accessUrls;
     final token = controller.relayToken;
     return SectionCard(
       title: '远程访问入口',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          FieldRow(label: '访问地址', value: url?.toString() ?? '—', mono: true),
+          if (urls.isEmpty)
+            const FieldRow(label: '访问地址', value: '—', mono: true)
+          else
+            for (var i = 0; i < urls.length; i++)
+              FieldRow(
+                label: i == 0 ? '访问地址' : '',
+                value: urls[i].toString(),
+                mono: true,
+              ),
           FieldRow(label: '令牌', value: token ?? '—', mono: true),
           _AccessKeyEditor(controller: controller),
           Material(
@@ -159,22 +167,12 @@ class _AccessCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            children: [
-              if (url != null)
-                CopyButton(text: url.toString(), label: '复制带 token URL'),
-              if (token != null) CopyButton(text: token, label: '复制 token'),
-              if (controller.relayAccessKey != null)
-                CopyButton(text: controller.relayAccessKey!, label: '复制访问密钥'),
-              OutlinedButton.icon(
-                onPressed: controller.busy || token == null
-                    ? null
-                    : controller.rotateRelayToken,
-                icon: const Icon(Icons.refresh, size: 16),
-                label: const Text('立即轮转 token'),
-              ),
-            ],
+          OutlinedButton.icon(
+            onPressed: controller.busy || token == null
+                ? null
+                : controller.rotateRelayToken,
+            icon: const Icon(Icons.refresh, size: 16),
+            label: const Text('立即轮转 token'),
           ),
           const SizedBox(height: 8),
           Text(
@@ -422,9 +420,12 @@ class _AccessKeyEditorState extends State<_AccessKeyEditor> {
             enabled: !widget.controller.busy,
             decoration: InputDecoration(
               labelText: '访问密钥',
-              hintText: widget.controller.relayAccessKey == null
-                  ? '启动时自动生成，也可自行设置'
-                  : '已保存，可复制或输入新密钥',
+              hintText: widget.controller.hasRelayAccessKey
+                  ? '已设置，输入新密钥可重设'
+                  : '输入至少 8 个字符',
+              helperText: widget.controller.hasRelayAccessKey
+                  ? '密钥不提供查看或复制，遗失后请重新设置。'
+                  : '首次使用请先设置访问密钥。',
               errorText: _error,
               isDense: true,
               border: const OutlineInputBorder(),

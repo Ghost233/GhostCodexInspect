@@ -17,15 +17,21 @@ Future<InternetAddress> resolveBindAddress({
   return InternetAddress.anyIPv4;
 }
 
-/// 纯选择逻辑（可测）：返回第一个非回环 IPv4 地址；没有则返回 null。
-/// 注意永不返回 anyIPv4（0.0.0.0）。
-InternetAddress? pickLanAddress(Iterable<InternetAddress> addresses) {
-  for (final address in addresses) {
-    if (address.type == InternetAddressType.IPv4 &&
-        !address.isLoopback &&
-        address != InternetAddress.anyIPv4) {
-      return address;
+/// 列出监听范围内的 IPv4 地址，去重并补上本机回环入口。
+List<InternetAddress> pickAccessAddresses(
+  Iterable<InternetAddress> addresses, {
+  required bool allowLanAccess,
+}) {
+  final result = <String, InternetAddress>{};
+  if (allowLanAccess) {
+    for (final address in addresses) {
+      if (address.type == InternetAddressType.IPv4 &&
+          !address.isLoopback &&
+          address != InternetAddress.anyIPv4) {
+        result[address.address] = address;
+      }
     }
   }
-  return null;
+  result['127.0.0.1'] = InternetAddress.loopbackIPv4;
+  return result.values.toList();
 }

@@ -118,7 +118,7 @@ class RelayServer {
 
   HttpServer? _server;
   InternetAddress? _bindAddress;
-  InternetAddress? _accessAddress;
+  List<InternetAddress> _accessAddresses = [];
   String? _token;
   String? _accessKey;
   String _accessSession = RelayToken.generate();
@@ -148,14 +148,23 @@ class RelayServer {
       RelayClientInfo(id: entry.key, authed: entry.value.isAuthed),
   ];
 
-  /// 带 token fragment 的访问 URL，供宿主 UI 展示/复制；
+  /// 带 token fragment 的访问 URL，兼容原有工具的单入口读取；
   /// fragment 不进 HTTP 请求与服务器日志。未运行时为 null。
   Uri? get accessUrl {
-    final address = _accessAddress;
+    final urls = accessUrls;
+    return urls.isEmpty ? null : urls.first;
+  }
+
+  /// 所有网卡入口及本机回环入口。仅列出实际监听的 IPv4 地址。
+  List<Uri> get accessUrls {
     final token = _token;
     final port = this.port;
-    if (address == null || token == null || port == null) return null;
-    return Uri.parse('http://${address.address}:$port/#t=$token');
+    if (token == null || port == null) return [];
+    return [
+      for (final address in _accessAddresses)
+        Uri.parse('http://${address.address}:$port/#t=$token'),
+      Uri.parse('http://localhost:$port/#t=$token'),
+    ];
   }
 
   /// 状态快照（如实回报；observedAt 为 UTC）。
@@ -187,21 +196,22 @@ class RelayServer {
       throw ArgumentError('固定 token 不能为空');
     }
     final address = await resolveBindAddress(allowLanAccess: allowLanAccess);
-    var accessAddress = InternetAddress.loopbackIPv4;
+    final interfaceAddresses = <InternetAddress>[];
     if (allowLanAccess) {
       final interfaces = await NetworkInterface.list(
         type: InternetAddressType.IPv4,
-        includeLinkLocal: false,
+        includeLinkLocal: true,
       );
-      accessAddress =
-          pickLanAddress(interfaces.expand((i) => i.addresses)) ??
-          accessAddress;
+      interfaceAddresses.addAll(interfaces.expand((i) => i.addresses));
     }
     final handler = _buildHandler(address);
     final server = await shelf_io.serve(handler, address, port);
     _server = server;
     _bindAddress = address;
-    _accessAddress = accessAddress;
+    _accessAddresses = pickAccessAddresses(
+      interfaceAddresses,
+      allowLanAccess: allowLanAccess,
+    );
     _token = fixedToken ?? RelayToken.generate();
     _accessKey = accessKey;
     _accessSession = RelayToken.generate();
@@ -235,7 +245,7 @@ class RelayServer {
     _server = null;
     _token = null;
     _bindAddress = null;
-    _accessAddress = null;
+    _accessAddresses = [];
     _accessKey = null;
     _accessSession = RelayToken.generate();
     for (final client in _clients.values.toList()) {

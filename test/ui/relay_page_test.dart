@@ -3,10 +3,60 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_codex_inspect/ui/host_controller.dart';
 import 'package:ghost_codex_inspect/ui/relay_page.dart';
 import 'package:ghost_codex_inspect/ui/theme.dart';
+import 'package:ghost_codex_inspect/ui/widgets.dart';
+import 'package:ghost_codex_inspect/relay/relay.dart';
 import 'package:ghost_codex_inspect/video/video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+class _AddressListController extends HostController {
+  _AddressListController() : super(autoRefresh: false);
+
+  @override
+  List<Uri> get accessUrls => [
+    for (final host in ['192.168.1.23', '100.64.0.2', '127.0.0.1', 'localhost'])
+      Uri.parse('http://$host:9410/#t=fixed-token'),
+  ];
+
+  @override
+  String? get relayToken => 'fixed-token';
+
+  @override
+  RelayServerStatus get relayStatus => RelayServerStatus(
+    running: true,
+    address: '0.0.0.0',
+    port: 9410,
+    clientCount: 0,
+    observedAt: DateTime.utc(2026, 11, 10),
+  );
+}
+
 void main() {
+  testWidgets('访问入口列出全部地址，移除复制按钮并保留轮转', (tester) async {
+    final c = _AddressListController();
+    addTearDown(c.dispose);
+    tester.view.physicalSize = const Size(1600, 1600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(Brightness.light),
+        home: Scaffold(body: RelayPage(controller: c)),
+      ),
+    );
+    for (final url in c.accessUrls) {
+      expect(find.text(url.toString()), findsOneWidget);
+    }
+    final card = find.ancestor(
+      of: find.text('远程访问入口'),
+      matching: find.byType(SectionCard),
+    );
+    expect(
+      find.descendant(of: card, matching: find.byType(CopyButton)),
+      findsNothing,
+    );
+    expect(find.text('立即轮转 token'), findsOneWidget);
+  });
+
   testWidgets('远程访问凭据可在停止时设置，校验短密钥并可固定 token', (tester) async {
     SharedPreferences.setMockInitialValues({});
     tester.view.physicalSize = const Size(1600, 1200);
@@ -30,7 +80,13 @@ void main() {
     await tester.enterText(keyField, 'custom-access-key');
     await tester.tap(find.text('保存密钥'));
     await tester.pumpAndSettle();
-    expect(c.relayAccessKey, 'custom-access-key');
+    expect(c.hasRelayAccessKey, isTrue);
+    expect(
+      (await SharedPreferences.getInstance()).getString('gci.relayAccessKey'),
+      'custom-access-key',
+    );
+    expect(tester.widget<TextField>(keyField).controller!.text, isEmpty);
+    expect(find.text('密钥不提供查看或复制，遗失后请重新设置。'), findsOneWidget);
     expect(find.text('访问密钥至少 8 个字符'), findsNothing);
     await tester.tap(find.text('固定 token（手动轮转）'));
     await tester.pumpAndSettle();

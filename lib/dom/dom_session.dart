@@ -244,7 +244,12 @@ class DomSession {
         if (size == null) break;
         unawaited(
           () async {
-            await applyViewportOverride(page, size.width, size.height);
+            await applyViewportOverride(
+              page,
+              size.width,
+              size.height,
+              deviceScaleFactor: size.deviceScaleFactor,
+            );
             _viewportOverridden = true;
             await _resync();
           }().catchError((Object e) {

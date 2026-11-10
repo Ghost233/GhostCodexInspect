@@ -13,6 +13,8 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 class _FakeCdpPage extends CdpPage {
   final frameController = StreamController<ScreencastFrameData>.broadcast();
   final sent = <(String, Map<String, dynamic>?)>[];
+  int _width = 720;
+  int _height = 480;
 
   @override
   CdpTargetInfo get target => const CdpTargetInfo(
@@ -25,7 +27,11 @@ class _FakeCdpPage extends CdpPage {
   @override
   Future<Object?> evaluate(String expression) async {
     if (expression.contains('viewportWidth')) {
-      return '{"viewportWidth":720,"viewportHeight":480,"dpr":1}';
+      return jsonEncode({
+        'viewportWidth': _width,
+        'viewportHeight': _height,
+        'dpr': 1,
+      });
     }
     return null;
   }
@@ -36,6 +42,10 @@ class _FakeCdpPage extends CdpPage {
     Map<String, dynamic>? params,
   ]) async {
     sent.add((method, params));
+    if (method == 'Emulation.setDeviceMetricsOverride') {
+      _width = params!['width'] as int;
+      _height = params['height'] as int;
+    }
     return <String, dynamic>{};
   }
 
@@ -324,6 +334,39 @@ void main() {
       'mobile': false,
     });
 
+    await waitFor(
+      () =>
+          session.status.encoding &&
+          page.sent.any(
+            (c) => c.$1 == 'Page.startScreencast' && c.$2?['maxWidth'] == 1600,
+          ),
+    );
+    ws.sink.add(
+      RelayEnvelope(
+        channel: RelayChannel.ctrl,
+        type: RelayMessageType.setViewport,
+        seq: 2,
+        ts: 0,
+        data: {'width': 3900, 'height': 7500, 'deviceScaleFactor': 0.1},
+      ).encode(),
+    );
+    await waitFor(
+      () =>
+          session.status.encoding &&
+          page.sent.any(
+            (c) =>
+                c.$1 == 'Page.startScreencast' &&
+                c.$2?['maxWidth'] == 390 &&
+                c.$2?['maxHeight'] == 750,
+          ),
+    );
+    expect(
+      page.sent
+          .lastWhere((c) => c.$1 == 'Emulation.setDeviceMetricsOverride')
+          .$2?['deviceScaleFactor'],
+      0.1,
+    );
+
     // 非法尺寸丢弃
     final before = page.sent
         .where((c) => c.$1 == 'Emulation.setDeviceMetricsOverride')
@@ -332,7 +375,7 @@ void main() {
       RelayEnvelope(
         channel: RelayChannel.ctrl,
         type: RelayMessageType.setViewport,
-        seq: 2,
+        seq: 3,
         ts: 0,
         data: {'width': 10, 'height': 10},
       ).encode(),

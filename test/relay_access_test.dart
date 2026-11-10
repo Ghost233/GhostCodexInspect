@@ -135,5 +135,40 @@ void main() {
     await server.start(allowLanAccess: true, accessKey: key);
     expect(server.bindAddress, InternetAddress.anyIPv4);
     expect(server.accessUrl!.host, isNot('0.0.0.0'));
+    final interfaces = await NetworkInterface.list(
+      type: InternetAddressType.IPv4,
+      includeLinkLocal: true,
+    );
+    final hosts = server.accessUrls.map((url) => url.host).toList();
+    expect(
+      hosts,
+      containsAll([
+        '127.0.0.1',
+        'localhost',
+        ...interfaces.expand((i) => i.addresses).map((a) => a.address),
+      ]),
+    );
+    expect(hosts, isNot(contains('0.0.0.0')));
+    expect(hosts.toSet(), hasLength(hosts.length));
+    expect(
+      server.accessUrls.every(
+        (url) => url.port == server.port && url.fragment == 't=${server.token}',
+      ),
+      isTrue,
+    );
+    await server.rotateToken();
+    expect(
+      server.accessUrls.every((url) => url.fragment == 't=${server.token}'),
+      isTrue,
+    );
+    await server.stop();
+    expect(server.accessUrls, isEmpty);
+  });
+
+  test('仅本机监听时不列出其他网卡地址', () {
+    expect(server.accessUrls.map((url) => url.host), [
+      '127.0.0.1',
+      'localhost',
+    ]);
   });
 }

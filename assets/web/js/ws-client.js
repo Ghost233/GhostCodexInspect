@@ -338,8 +338,8 @@ export class RelayClient {
    * Emulation.setDeviceMetricsOverride 让页面按该尺寸重排；视频/DOM
    * 会话随后广播新 meta。
    */
-  setViewport(width, height) {
-    return this._send('ctrl', 'setViewport', { width, height });
+  setViewport(width, height, deviceScaleFactor = 1) {
+    return this._send('ctrl', 'setViewport', { width, height, deviceScaleFactor });
   }
 
   /**

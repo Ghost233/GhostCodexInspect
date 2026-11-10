@@ -97,7 +97,9 @@ void main() {
   late _FakeCdpClient fakeClient;
 
   setUp(() {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      'gci.relayAccessKey': 'saved-access-key',
+    });
     fakeClient = _FakeCdpClient();
     controller = HostController(
       autoRefresh: false,
@@ -116,6 +118,23 @@ void main() {
     expect(controller.targetRunning, isFalse);
     expect(controller.busy, isFalse);
     expect(controller.accessUrl, isNull);
+    expect(controller.accessUrls, isEmpty);
+  });
+
+  test('未配置密钥时不自动生成，须自行设置后才能启动中转', () async {
+    SharedPreferences.setMockInitialValues({});
+    await controller.loadSettings();
+    expect(controller.hasRelayAccessKey, isFalse);
+    await controller.startRelay();
+    expect(controller.relayStatus.running, isFalse);
+    expect(controller.lastError, contains('请先设置访问密钥'));
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.containsKey('gci.relayAccessKey'), isFalse);
+    await controller.setRelayAccessKey('custom-access-key');
+    await controller.startRelay();
+    expect(controller.lastError, isNull);
+    expect(controller.relayStatus.running, isTrue);
+    expect(controller.hasRelayAccessKey, isTrue);
   });
 
   test('中转未运行时启动会话：lastError 记录且不崩溃', () async {
@@ -170,8 +189,7 @@ void main() {
 
   test('访问密钥与固定 token 持久化，跨控制器重启保留且可手动轮转', () async {
     await controller.loadSettings();
-    final key = controller.relayAccessKey;
-    expect(key, hasLength(22));
+    expect(controller.hasRelayAccessKey, isTrue);
     await controller.startRelay();
     final token = controller.relayToken;
     await controller.setFixedRelayToken(true);
@@ -182,7 +200,7 @@ void main() {
     final restored = HostController(autoRefresh: false);
     addTearDown(restored.dispose);
     await restored.loadSettings();
-    expect(restored.relayAccessKey, key);
+    expect(restored.hasRelayAccessKey, isTrue);
     expect(restored.useFixedRelayToken, isTrue);
     expect(restored.relayToken, token);
     await restored.rotateRelayToken();
@@ -205,13 +223,13 @@ void main() {
 
   test('自行设置密钥后持久化，短密钥被拒绝', () async {
     await controller.loadSettings();
-    final original = controller.relayAccessKey;
+    final prefs = await SharedPreferences.getInstance();
+    final original = prefs.getString('gci.relayAccessKey');
     await controller.setRelayAccessKey('short');
-    expect(controller.relayAccessKey, original);
+    expect(prefs.getString('gci.relayAccessKey'), original);
     expect(controller.lastError, contains('至少 8 个字符'));
     await controller.setRelayAccessKey('custom-access-key');
     expect(controller.lastError, isNull);
-    final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString('gci.relayAccessKey'), 'custom-access-key');
   });
 

@@ -10,7 +10,7 @@
 // SourceBuffer。解码偏好映射 hardwareAcceleration。
 // 输入复用 Input 域链路。VP9 不支持（宿主侧只有 libvpx 软编，#25）。
 import { computeScale } from './coord.js';
-import { KeyboardForwarder } from './input.js';
+import { KeyboardForwarder, bindPointerInput } from './input.js';
 import { Muxer, StreamTarget } from '../vendor/mp4-muxer.mjs';
 
 // ===================== 位流解析 =====================
@@ -242,16 +242,17 @@ export class VideoView {
     this.video.className = 'video-mse hidden';
     this.video.muted = true;
     this.video.autoplay = true;
+    this.video.playsInline = true;
     host.appendChild(this.canvas);
     host.appendChild(this.video);
 
     this._keyboard = null;
     if (!readOnly) {
-      this._bindInput();
       this._keyboard = new KeyboardForwarder(host, {
         onText: (text) => this.client.sendInput({ kind: 'text', text }),
         onKey: (key) => this.client.sendInput({ kind: 'key', key }),
       });
+      this._bindInput();
     }
 
     new ResizeObserver(() => this._fit()).observe(host);
@@ -551,31 +552,16 @@ export class VideoView {
 
   // ---- 输入（坐标按显示元素尺寸 → 源视口换算） ----
 
+  focusKeyboard() {
+    this._keyboard?.focus();
+  }
+
   _bindInput() {
-    const target = this.host;
-    target.addEventListener('mousedown', (e) => {
-      if (this._keyboard) this._keyboard.focus();
-      const p = this._toSource(e);
-      if (p) this.client.sendInput({ kind: 'mouse', action: 'down', x: p.x, y: p.y, button: 'left', clickCount: 1 });
+    bindPointerInput(this.host, {
+      toSource: (e) => this._toSource(e),
+      send: (payload) => this.client.sendInput(payload),
+      keyboard: this._keyboard,
     });
-    target.addEventListener('mouseup', (e) => {
-      const p = this._toSource(e);
-      if (p) this.client.sendInput({ kind: 'mouse', action: 'up', x: p.x, y: p.y, button: 'left', clickCount: 1 });
-    });
-    target.addEventListener('mousemove', (e) => {
-      const now = performance.now();
-      if (now - (this._lastMove || 0) < 50) return;
-      this._lastMove = now;
-      const p = this._toSource(e);
-      if (p) this.client.sendInput({ kind: 'mouse', action: 'move', x: p.x, y: p.y });
-    });
-    target.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const p = this._toSource(e);
-      if (!p) return;
-      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 800 : 1;
-      this.client.sendInput({ kind: 'wheel', x: p.x, y: p.y, deltaX: e.deltaX * unit, deltaY: e.deltaY * unit });
-    }, { passive: false });
   }
 
   _toSource(e) {

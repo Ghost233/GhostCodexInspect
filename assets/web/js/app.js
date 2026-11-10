@@ -69,7 +69,7 @@ function setupViewportSync(client, session, videoView, readOnly) {
       ? (videoView ? videoView.viewportHeight : 0)
       : (session.sourceHeight || 0);
     if (srcW === w && srcH === h) return;
-    client.setViewport(w, h);
+    client.setViewport(w, h, currentZoom / 100);
   };
   viewportSync = () => {
     clearTimeout(timer);
@@ -134,24 +134,24 @@ function setupZoomControls(readOnly) {
   const control = $('zoom-control');
   try {
     const stored = Number(localStorage.getItem('gci.viewZoom'));
-    if (stored >= 50 && stored <= 200 && stored % 10 === 0) currentZoom = stored;
+    if (stored >= 10 && stored <= 200 && stored % 5 === 0) currentZoom = stored;
   } catch { /* 隐私模式等忽略 */ }
   updateZoomControls = () => {
     const disabled = readOnly || currentSizeMode !== 'fit';
-    out.disabled = disabled || currentZoom <= 50;
+    out.disabled = disabled || currentZoom <= 10;
     input.disabled = disabled || currentZoom >= 200;
     value.textContent = `${currentZoom}%`;
     control.title = readOnly ? '只读预览不能更改远程界面缩放' :
       currentSizeMode !== 'fit' ? '切换到自适应模式后可调整缩放' : '远程界面缩放';
   };
   const change = (delta) => {
-    currentZoom = Math.max(50, Math.min(200, currentZoom + delta));
+    currentZoom = Math.max(10, Math.min(200, currentZoom + delta));
     try { localStorage.setItem('gci.viewZoom', String(currentZoom)); } catch { /* 忽略 */ }
     updateZoomControls();
     if (viewportSync) viewportSync();
   };
-  out.addEventListener('click', () => change(-10));
-  input.addEventListener('click', () => change(10));
+  out.addEventListener('click', () => change(-5));
+  input.addEventListener('click', () => change(5));
   updateZoomControls();
 }
 
@@ -475,6 +475,14 @@ function main() {
   const inputLayer = readOnly
     ? null
     : new InputCaptureLayer(host, session, client);
+
+  const keyboardButton = $('keyboard-toggle');
+  keyboardButton.classList.toggle('hidden', readOnly);
+  keyboardButton.addEventListener('click', () => {
+    if (readOnly) return;
+    if (currentMode === 'video') videoView.focusKeyboard();
+    else inputLayer.keyboard.focus();
+  });
 
   // #17：视图尺寸模式切换（自适应/原始尺寸，双模式同步）+ 新鲜度指示
   setupSizeToggle(session, videoView);

@@ -399,6 +399,7 @@ body {
   background: transparent;
   color: transparent;
   caret-color: transparent;
+  font-size: 16px;
   z-index: 3;
 }
 

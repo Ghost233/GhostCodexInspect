@@ -129,6 +129,7 @@ class VideoSession {
   /// 是否已对页面应用视口覆盖（stop 时据此恢复）。
   bool _viewportOverridden = false;
   int _viewportHeight = 0;
+  double _deviceScaleFactor = 1;
   int _framesEncoded = 0;
   int _ausSent = 0;
   int _idrAusSent = 0;
@@ -251,6 +252,14 @@ class VideoSession {
       await page.send('Page.startScreencast', {
         'format': 'jpeg',
         'quality': quality,
+        'maxWidth': (_viewportWidth * _deviceScaleFactor).round().clamp(
+          kViewportMin,
+          kViewportMaxWidth,
+        ),
+        'maxHeight': (_viewportHeight * _deviceScaleFactor).round().clamp(
+          kViewportMin,
+          kViewportMaxHeight,
+        ),
         'everyNthFrame': everyNthFrameForFps(_frameRate),
       });
       _encoding = true;
@@ -436,10 +445,22 @@ class VideoSession {
       if (size == null) return;
       unawaited(
         () async {
-          await applyViewportOverride(page, size.width, size.height);
+          final wasEncoding = _encoding;
+          if (wasEncoding) await _pauseEncoding();
+          await applyViewportOverride(
+            page,
+            size.width,
+            size.height,
+            deviceScaleFactor: size.deviceScaleFactor,
+          );
+          _deviceScaleFactor = size.deviceScaleFactor;
           _viewportOverridden = true;
           await _readViewport();
-          await _broadcastVideoMeta();
+          if (wasEncoding && _active && relay.authedClientCount > 0) {
+            await _resumeEncoding();
+          } else {
+            await _broadcastVideoMeta();
+          }
         }().catchError((Object e) {
           _lastError = '$e';
         }),

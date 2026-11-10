@@ -3,8 +3,7 @@
 /// 与 DOM 会话互斥（共享中转回调）。
 ///
 /// 晚到客户端：立即补发 videoMeta，画面从下一个关键帧 AU 开始可解码
-/// （GOP 48 @ 30fps 名义值，最长等待约 1.6s；远程端在拿到关键帧前
-/// 丢弃 delta AU）。
+/// （关键帧携带解码参数；远程端在拿到关键帧前丢弃 delta AU）。
 library;
 
 import 'dart:async';
@@ -58,7 +57,7 @@ class VideoSessionStatus {
   /// 端到端延迟同步上涨——writeFrame 无背压的显形指标）。
   final int encodeQueueDepth;
 
-  /// 最近一个 AU 的捕获→广播耗时（ms，CDP screencast 采集时刻起算）。
+  /// 最近一个 AU 的采样入队→广播耗时（ms；静止复用帧以入队时间计）。
   final double lastFrameLatencyMs;
 
   /// 当前目标帧率（远程端 setFrameRate 可调；诊断用）。
@@ -140,6 +139,8 @@ class VideoSession {
   /// 排查：writeFrame 无背压，积压会在这两个指标上显形）。
   final _captureTimes = Queue<double>();
   double _lastFrameLatencyMs = 0;
+  Timer? _frameTicker;
+  Uint8List? _latestFrame;
   String? _lastError;
   final _firstAu = Completer<void>();
 
@@ -263,6 +264,30 @@ class VideoSession {
         'everyNthFrame': everyNthFrameForFps(_frameRate),
       });
       _encoding = true;
+      // 隐藏/静止窗口不一定主动推送首张 screencast 截图，显式取一张种子。
+      final seed = await page.send('Page.captureScreenshot', {
+        'format': 'jpeg',
+        'quality': quality,
+      });
+      if (_latestFrame == null && seed['data'] is String) {
+        _latestFrame = base64Decode(seed['data'] as String);
+      }
+      if (!_encoding || !_active) return;
+      // 静止页面可能只产生一次 screencastFrame。按编码时钟复用最近
+      // 截图，确保首个 AU 和后续关键帧均能输出，MSE 不会无限等帧。
+      _frameTicker = Timer.periodic(
+        Duration(microseconds: (1000000 / _frameRate).round()),
+        (_) {
+          final frame = _latestFrame;
+          if (!_encoding || frame == null) return;
+          encoder.writeFrame(frame);
+          _framesEncoded++;
+          _captureTimes.addLast(DateTime.now().millisecondsSinceEpoch / 1000);
+          while (_captureTimes.length > 256) {
+            _captureTimes.removeFirst();
+          }
+        },
+      );
       // encoder 名此时才确定，重发 meta 让远程端看到真实编码器
       await _broadcastVideoMeta();
     } catch (e) {
@@ -277,6 +302,10 @@ class VideoSession {
   Future<void> _pauseEncoding() async {
     if (!_encoding) return;
     _encoding = false;
+    _frameTicker?.cancel();
+    _frameTicker = null;
+    _latestFrame = null;
+    _captureTimes.clear();
     await _frameSub?.cancel();
     _frameSub = null;
     await _auSub?.cancel();
@@ -310,17 +339,7 @@ class VideoSession {
           .send('Page.screencastFrameAck', {'sessionId': frame.sessionId})
           .catchError((_) => <String, dynamic>{}),
     );
-    _encoder?.writeFrame(base64Decode(frame.data));
-    _framesEncoded++;
-    final captureTs = frame.metadata['timestamp'];
-    if (captureTs is num) {
-      _captureTimes.addLast(captureTs.toDouble());
-      // 编码器卡死时 AU 不再流出，队列只进不出——封顶防内存无界增长
-      // （饱和后 encodeQueueDepth 停在 256，仍是积压信号）。
-      while (_captureTimes.length > 256) {
-        _captureTimes.removeFirst();
-      }
-    }
+    _latestFrame = base64Decode(frame.data);
   }
 
   void _onAccessUnit(Uint8List au) {

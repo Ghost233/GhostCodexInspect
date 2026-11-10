@@ -104,6 +104,13 @@ void main() {
         isTrue,
         reason: '至少一个 AU 含 IDR',
       );
+      for (final au in aus.where((au) => nalTypes(au).contains(5))) {
+        expect(
+          nalTypes(au),
+          containsAll(<int>[7, 8]),
+          reason: '晚加入的手机也必须在关键帧收到解码参数',
+        );
+      }
       // 每个 AU 最多一个 VCL（切分正确性）
       for (final au in aus) {
         final vclCount = nalTypes(au).where((t) => t == 1 || t == 5).length;

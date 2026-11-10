@@ -88,7 +88,10 @@ enum RelayMessageType {
   /// data = {fps}；远程端→宿主的帧率偏好（ctrl 通道，视频会话重启
   /// 捕获与编码管线应用新帧率；2026-10-19 帧率 15/30/60 可选需求）。
   /// 宿主在 videoMeta 里回显当前 frameRate 供其他远程端同步。
-  setFrameRate;
+  setFrameRate,
+
+  /// data = [{x,y,width,height}]；供远程端判断触摸位置是否可编辑。
+  inputTargets;
 
   static RelayMessageType? tryParse(String name) =>
       RelayMessageType.values.asNameMap()[name];

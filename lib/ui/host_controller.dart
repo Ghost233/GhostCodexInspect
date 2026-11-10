@@ -16,6 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../cdp/cdp.dart';
 import '../dom/dom.dart';
+import '../dom/editable_regions.dart';
 import '../inspector/inspector.dart';
 import '../launcher/launcher.dart';
 import '../relay/relay.dart';
@@ -343,6 +344,7 @@ class HostController extends ChangeNotifier {
   CdpConnection? _cdpConnection;
   DomSession? _domSession;
   VideoSession? _videoSession;
+  EditableRegions? _editableRegions;
 
   /// 视频流编码参数（#25/#27）：启动视频会话时生效。
   VideoCodecKind videoCodec = VideoCodecKind.h264;
@@ -548,6 +550,8 @@ class HostController extends ChangeNotifier {
               break;
           }
           _cdpConnection = connection;
+          _editableRegions = EditableRegions(page, relay);
+          await _editableRegions!.start();
           _sessionKind = kind;
           _shellTargets = shells;
           _activeTargetId = shell.id;
@@ -595,6 +599,8 @@ class HostController extends ChangeNotifier {
 
   /// 停止接管会话并断开 CDP（不杀目标应用进程）。幂等。
   Future<void> stopSession() async {
+    _editableRegions?.stop();
+    _editableRegions = null;
     await _domSession?.stop();
     await _videoSession?.stop();
     _domSession = null;

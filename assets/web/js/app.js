@@ -5,6 +5,7 @@ import { RelayClient, parseHashParams, defaultWsUrl } from './ws-client.js';
 import { DomReplaySession } from './replay.js';
 import { InputCaptureLayer } from './input.js';
 import { VideoView } from './video.js';
+import { setupMobileViewport } from './mobile-viewport.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -49,6 +50,7 @@ let updateZoomControls = () => {};
 function setupViewportSync(client, session, videoView, readOnly) {
   if (readOnly) return;
   let timer = null;
+  let pending = null;
   const send = () => {
     if (currentSizeMode !== 'fit') return;
     const video = currentMode === 'video';
@@ -68,12 +70,15 @@ function setupViewportSync(client, session, videoView, readOnly) {
       ? (videoView ? videoView.viewportHeight : 0)
       : (session.sourceHeight || 0);
     if (srcW === w && srcH === h) return;
-    client.setViewport(w, h, currentZoom / 100);
+    const request = `${currentMode}:${w}:${h}:${currentZoom}`;
+    if (request === pending) return;
+    if (client.setViewport(w, h, currentZoom / 100) !== false) pending = request;
   };
   viewportSync = () => {
     clearTimeout(timer);
     timer = setTimeout(send, 300);
   };
+  viewportSync.reset = () => { pending = null; viewportSync(); };
   const observer = new ResizeObserver(() => viewportSync());
   for (const id of ['stage-dom', 'stage-video']) {
     const pane = $(id);
@@ -417,7 +422,7 @@ function main() {
           .catch(() => {});
       }
       // authed 后重发帧率偏好：连接建立前的发送会被静默丢弃
-      if (state === 'authed') pushFrameRate();
+      if (state === 'authed') { pushFrameRate(); viewportSync?.reset(); }
     },
     onMessage: (envelope) => {
       // 按通道分发（线格式权威：lib/relay/envelope.dart，键名 ch/t/data）
@@ -445,12 +450,16 @@ function main() {
         if (envelope.t === 'videoMeta' && envelope.data) {
           syncFpsFromMeta(envelope.data.frameRate);
         }
+      } else if (envelope.ch === 'ctrl' && envelope.t === 'inputTargets') {
+        inputLayer?.keyboard.setTargets(envelope.data);
+        videoView._keyboard?.setTargets(envelope.data);
       } else if (envelope.ch === 'ctrl' && envelope.t === 'shells') {
         // #16：shell 页签栏；点击切换时先复位三个视图，再请求宿主重建会话
         renderShellTabs(envelope.data, client, () => {
           const placeholder = $('stage-placeholder');
           if (placeholder) placeholder.classList.remove('hidden');
           videoView.reset();
+          viewportSync?.reset();
         });
       } else if (envelope.ch === 'ctrl' && envelope.t === 'fileChooserHint') {
         // #20：文件对话框被拦截，提示回本机操作
@@ -497,6 +506,7 @@ function main() {
   setupZoomControls(readOnly);
   // 自适应视口跟随：舞台尺寸回传宿主覆盖目标页视口
   setupViewportSync(client, session, videoView, readOnly);
+  setupMobileViewport(window, document);
 
   // 中转不可达（如本地静态伺服预览）属预期：页面显示「未连接」并自动重连
   client.connect();

@@ -9,6 +9,8 @@ import 'package:ghost_codex_inspect/relay/relay.dart';
 import 'package:ghost_codex_inspect/video/video.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import 'video_encoder_test.dart' show makeJpeg;
+
 /// 可控 FakeCdpPage：帧流由测试推入。
 class _FakeCdpPage extends CdpPage {
   final frameController = StreamController<ScreencastFrameData>.broadcast();
@@ -120,6 +122,32 @@ void main() {
     );
     return (ws, stream);
   }
+
+  test('静止页面只收到一张截图也能持续输出首屏和关键帧', () async {
+    final lookup = await locator.find();
+    if (!lookup.available) return;
+    final relay = RelayServer(staticDir: 'assets/web');
+    await relay.start();
+    addTearDown(relay.stop);
+    final page = _FakeCdpPage();
+    final session = VideoSession(page: page, relay: relay);
+    await session.start();
+    addTearDown(session.stop);
+    final (ws, _) = await connectAuthed(relay);
+    addTearDown(() => ws.sink.close());
+    await waitFor(() => session.status.encoding, timeoutSeconds: 10);
+    final jpeg = await makeJpeg(lookup.path!, 0);
+    page.frameController.add(
+      ScreencastFrameData(
+        data: base64Encode(jpeg),
+        sessionId: 1,
+        metadata: const {},
+      ),
+    );
+    await Future<void>.delayed(const Duration(seconds: 2));
+    expect(session.status.ausSent, greaterThan(5));
+    expect(session.status.idrAusSent, greaterThanOrEqualTo(2));
+  });
 
   test('VideoSession：真 ffmpeg 编码链路，meta + AU 信封广播、stop 幂等', () async {
     final lookup = await locator.find();

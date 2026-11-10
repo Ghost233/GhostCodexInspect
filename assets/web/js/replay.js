@@ -4,7 +4,7 @@
  * 方案（docs/research/dom-replay.md §2、§3.1）：
  * - 用 @rrweb/replay 的 Replayer（liveMode: true），不用 rrweb-player。
  * - 握手时中转依次推 meta（视口/href）→ full（FullSnapshot）→ inc/batch 增量流。
- * - Replayer 以缓冲基线 startLive(Date.now() - BUFFER_MS) 吸收网络与节流延迟。
+ * - Replayer 用宿主事件时间作为缓冲基线，避免两台设备时钟偏差阻塞首屏。
  * - 重建在 sandboxed iframe 中进行（Replayer 内部强制沙箱）。
  *
  * 本期状态：数据通道（dom）由 #11 接通，本模块提供完整入口函数；
@@ -111,7 +111,8 @@ export class DomReplaySession {
         // 无数据期不打印告警噪音
         showWarning: false,
       });
-      this.replayer.startLive(Date.now() - LIVE_BUFFER_MS);
+      // 两台设备的系统时钟可能不同，播放基线必须取宿主事件的时间轴。
+      this.replayer.startLive(fullEvent.timestamp - LIVE_BUFFER_MS);
     } catch (err) {
       // 快照数据异常时降级为「未重建」状态，等待下一次 full（resync）
       this.replayer = null;

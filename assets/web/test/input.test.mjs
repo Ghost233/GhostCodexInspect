@@ -33,7 +33,8 @@ globalThis.document = { createElement: (tag) => new Element(tag), activeElement:
 globalThis.ResizeObserver = class { observe() {} };
 
 for (const mode of ['DOM', 'video']) {
-  test(`${mode}: 手机触摸产生完整点击，结束后焦点进入键盘代理`, () => {
+  test(`${mode}: 手机触摸普通区域产生完整点击，不展开键盘`, () => {
+    document.activeElement = null;
     const host = new Element('div');
     const messages = [];
     const client = { sendInput: (message) => messages.push(message) };
@@ -59,9 +60,26 @@ for (const mode of ['DOM', 'video']) {
       { kind: 'mouse', action: 'down', x: 100, y: 60, button: 'left', clickCount: 1 },
       { kind: 'mouse', action: 'up', x: 100, y: 60, button: 'left', clickCount: 1 },
     ]);
-    assert.equal(document.activeElement, keyboard.proxy);
+    assert.notEqual(document.activeElement, keyboard.proxy);
   });
 }
+
+test('触摸仅在命中输入框时展开键盘，点击普通区域关闭代理焦点', () => {
+  const target = new Element('div');
+  let focused = false;
+  bindPointerInput(target, {
+    toSource: (e) => ({ x: e.clientX, y: e.clientY }),
+    send() {},
+    isEditable: (point) => point.x < 50,
+    keyboard: { focus() { focused = true; }, blur() { focused = false; } },
+  });
+  for (const [x, expected] of [[10, true], [100, false]]) {
+    const touch = { pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: x, clientY: 20, button: 0 };
+    target.emit('pointerdown', touch);
+    target.emit('pointerup', touch);
+    assert.equal(focused, expected);
+  }
+});
 
 function keyboard() {
   const messages = [];

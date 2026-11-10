@@ -230,7 +230,7 @@ export class VideoView {
     this.ausReceived = 0;
     this.keyAusReceived = 0;
     this.mseKeyWaits = 0;
-    // 参数集缓存（VT 管道模式只在首 IDR 带参数集，后续裸 IDR 复用缓存）
+    // 参数集缓存（兼容只在首 IDR 带参数集的旧宿主）。
     this._vps = null;
     this._sps = null;
     this._pps = null;
@@ -477,6 +477,7 @@ export class VideoView {
       if (!key) { this.mseKeyWaits++; return; }
       const description = this._mseDescription();
       if (!description) { this.mseMissingSps = (this.mseMissingSps || 0) + 1; return; }
+      if (this.codec === 'h264') this._codecString = codecStringFromSps(this._sps);
       const mediaSource = new MediaSource();
       this.video.src = URL.createObjectURL(mediaSource);
       this._mse = { mediaSource, sourceBuffer: null, muxer: null, queue: [], description };
@@ -499,9 +500,7 @@ export class VideoView {
                   this.mseBytesAppended = (this.mseBytesAppended || 0) + copy.byteLength;
                 } catch (err) { this.lastError = 'append: ' + err; }
               },
-              chunked: true,
-              // 默认 16MB 攒满才发 onData——直播场景必须小 chunk（#22 踩坑）
-              chunkSize: 16384,
+              chunked: false,
             }),
             video: {
               codec: this.codec === 'av1' ? 'av1' : this.codec === 'hevc' ? 'hevc' : 'avc',
@@ -509,6 +508,7 @@ export class VideoView {
               height: this.viewportHeight || 720,
             },
             fastStart: 'fragmented',
+            minFragmentDuration: 0,
             firstTimestampBehavior: 'offset',
           });
           this.canvas.classList.add('hidden');

@@ -179,6 +179,10 @@ class FfmpegVideoEncoder {
         'false',
       ],
       if (encoder == plan.swEncoder) ...plan.swArgs,
+      if (codec != VideoCodecKind.av1) ...[
+        '-bsf:v',
+        'dump_extra=freq=keyframe',
+      ],
       '-flush_packets', '1', // 每包冲刷输出缓冲，保证实时性
       '-f', plan.outFormat,
       'pipe:1',
@@ -207,6 +211,9 @@ class FfmpegVideoEncoder {
                     final t = header & 0x1f;
                     return t == 1 || t == 5;
                   },
+            startsUnit: codec == VideoCodecKind.hevc
+                ? (h) => [32, 33, 34, 35].contains((h >> 1) & 0x3f)
+                : (h) => [7, 8, 9].contains(h & 0x1f),
           ).add;
     _stdoutSub = process.stdout.listen(splitter);
 
@@ -268,10 +275,15 @@ class FfmpegVideoEncoder {
 /// Annex B 字节流 → 访问单元切分器（h264/hevc 共用；[isVcl] 按编码
 /// 格式判断 NAL 头是否为 VCL）。
 class _AnnexBSplitter {
-  _AnnexBSplitter(this._sink, {required this._isVcl});
+  _AnnexBSplitter(
+    this._sink, {
+    required this._isVcl,
+    required this._startsUnit,
+  });
 
   final StreamController<Uint8List> _sink;
   final bool Function(int header) _isVcl;
+  final bool Function(int header) _startsUnit;
 
   /// 未消费字节缓冲（跨 chunk 保留）。
   final _buf = <int>[];
@@ -312,11 +324,14 @@ class _AnnexBSplitter {
       if (headerIndex >= _buf.length) break; // NAL 头在下一块，等
       final isVcl = _isVcl(_buf[headerIndex]);
 
-      if (isVcl && _auHasVcl && _auStart != null) {
-        // 新 VCL → 上一 AU 完整发出（[_auStart, start)）
+      if ((isVcl || _startsUnit(_buf[headerIndex])) &&
+          _auHasVcl &&
+          _auStart != null) {
+        // 新帧或其前导参数集 → 上一 AU 完整发出，参数集归入新帧。
         final au = Uint8List.fromList(_buf.sublist(_auStart!, start));
         if (au.isNotEmpty) _sink.add(au);
         _auStart = start;
+        _auHasVcl = false;
       } else {
         _auStart ??= start;
       }

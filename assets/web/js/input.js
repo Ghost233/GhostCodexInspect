@@ -49,6 +49,7 @@ export class KeyboardForwarder {
     host.appendChild(ta);
     this.proxy = ta;
     this._composing = false;
+    this.targets = [];
 
     ta.addEventListener('compositionstart', () => { this._composing = true; });
     ta.addEventListener('compositionend', (e) => {
@@ -99,17 +100,31 @@ export class KeyboardForwarder {
   }
 
   /** 把键盘焦点交给代理（点击视图后调用）。 */
-  focus() {
+  setTargets(targets) {
+    this.targets = Array.isArray(targets) ? targets : [];
+  }
+
+  contains(point) {
+    return this.targets.some((r) => point.x >= r.x && point.y >= r.y &&
+      point.x <= r.x + r.width && point.y <= r.y + r.height);
+  }
+
+  focus(point, soft = true) {
+    this.proxy.inputMode = soft ? 'text' : 'none';
+    this.proxy._remoteFocusY = point?.y;
     this.proxy.focus({ preventScroll: true });
   }
+
+  blur() { this.proxy.blur?.(); }
 }
 
 /** 两种画面共享的鼠标/触摸输入，避免浏览器兼容鼠标事件重复或丢失。 */
-export function bindPointerInput(target, { toSource, send, keyboard }) {
+export function bindPointerInput(target, { toSource, send, keyboard, isEditable = (point) => keyboard.contains?.(point) || false }) {
   let pointerId = null;
   let lastPoint = null;
   let button = 'left';
   let lastMove = 0;
+  let start = null;
   target.style.touchAction = 'none';
   target.addEventListener('pointerdown', (e) => {
     if (e.isPrimary === false || pointerId !== null) return;
@@ -118,10 +133,11 @@ export function bindPointerInput(target, { toSource, send, keyboard }) {
     e.preventDefault();
     pointerId = e.pointerId;
     lastPoint = point;
+    start = { x: e.clientX, y: e.clientY };
     button = e.button === 2 ? 'right' : e.button === 1 ? 'middle' : 'left';
     target.setPointerCapture(e.pointerId);
     send({ kind: 'mouse', action: 'down', ...point, button, clickCount: 1 });
-    if (e.pointerType !== 'touch') keyboard.focus();
+    if (e.pointerType !== 'touch') keyboard.focus(undefined, isEditable(point));
   });
   target.addEventListener('pointermove', (e) => {
     if (e.isPrimary === false || (e.pointerType === 'touch' && pointerId !== e.pointerId)) return;
@@ -140,8 +156,12 @@ export function bindPointerInput(target, { toSource, send, keyboard }) {
     send({ kind: 'mouse', action: 'up', ...point, button, clickCount: 1 });
     pointerId = null;
     lastPoint = null;
-    // 先发送完整点击，再弹出软键盘，避免视口缩小改变松手坐标。
-    if (!cancelled && e.pointerType === 'touch') keyboard.focus();
+    if (!cancelled && e.pointerType === 'touch') {
+      const tapped = Math.hypot(e.clientX - start.x, e.clientY - start.y) < 12;
+      if (tapped && isEditable(point)) keyboard.focus({ x: e.clientX, y: e.clientY });
+      else keyboard.blur?.();
+    }
+    start = null;
   };
   target.addEventListener('pointerup', (e) => finish(e, false));
   target.addEventListener('pointercancel', (e) => finish(e, true));
@@ -184,6 +204,13 @@ export class InputCaptureLayer {
       toSource: (e) => this._toSource(e.clientX, e.clientY),
       send: (payload) => this._send(payload),
       keyboard: this.keyboard,
+      isEditable: (point) => {
+        const doc = this.host.querySelector('iframe')?.contentDocument;
+        const el = doc?.elementFromPoint(point.x, point.y)?.closest('input,textarea,[contenteditable]');
+        if (!el || el.disabled || el.readOnly) return false;
+        return el.isContentEditable || el.tagName === 'TEXTAREA' ||
+          (el.tagName === 'INPUT' && !['hidden','button','submit','reset','checkbox','radio','range','color','file','image'].includes(el.type));
+      },
     });
   }
 

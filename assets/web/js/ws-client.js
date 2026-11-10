@@ -96,7 +96,7 @@ const CHANNEL_NAMES = ['dom', 'frame', 'input', 'ctrl', 'video'];
 const TYPE_NAMES = [
   'meta', 'full', 'inc', 'batch', 'resync', 'ping', 'pong',
   'auth', 'authOk', 'authErr', 'input', 'frame', 'shells', 'switchTarget',
-  'fileChooserHint', 'videoMeta', 'videoFrame', 'setViewport', 'setFrameRate',
+  'fileChooserHint', 'videoMeta', 'videoFrame', 'setViewport', 'setFrameRate', 'inputTargets',
 ];
 
 /**

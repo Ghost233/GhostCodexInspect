@@ -35,6 +35,9 @@ class PuppeteerCdpClient implements CdpClient {
   Future<void> connect() async {
     _browser = await pp.puppeteer.connect(
       browserUrl: 'http://$host:$debugPort',
+      // 只连接已有窗口；Puppeteer 默认会把所有页面改为 1280×1024。
+      // 远程视口由选中页面的会话显式管理。
+      defaultViewport: null,
     );
   }
 

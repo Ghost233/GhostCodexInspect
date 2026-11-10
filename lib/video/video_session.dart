@@ -206,11 +206,14 @@ class VideoSession {
 
   Future<void> _readViewport() async {
     final raw = await page.evaluate(
-      'JSON.stringify({viewportWidth: innerWidth, viewportHeight: innerHeight})',
+      'JSON.stringify({viewportWidth: innerWidth, viewportHeight: innerHeight, deviceScaleFactor: devicePixelRatio})',
     );
     final map = jsonDecode(raw as String) as Map<String, dynamic>;
     _viewportWidth = (map['viewportWidth'] as num).toInt();
     _viewportHeight = (map['viewportHeight'] as num).toInt();
+    if (map['deviceScaleFactor'] is num) {
+      _deviceScaleFactor = (map['deviceScaleFactor'] as num).toDouble();
+    }
   }
 
   /// 启动编码管线（screencast + ffmpeg）。幂等；encoding=true 时
@@ -328,6 +331,7 @@ class VideoSession {
       'encoder': _encoder?.activeEncoder ?? 'unknown',
       'viewportWidth': _viewportWidth,
       'viewportHeight': _viewportHeight,
+      'deviceScaleFactor': _deviceScaleFactor,
       'frameRate': _frameRate,
     });
   }

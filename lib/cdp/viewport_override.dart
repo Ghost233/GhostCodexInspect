@@ -29,7 +29,7 @@ const int kViewportMaxHeight = 4320;
       scale is! num ||
       !scale.isFinite ||
       scale < 0.1 ||
-      scale > 2) {
+      scale > 8) {
     return null;
   }
   final width = w.round();

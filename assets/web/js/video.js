@@ -217,6 +217,7 @@ export class VideoView {
     this.sizeMode = 'fit';
     this.viewportWidth = 0;
     this.viewportHeight = 0;
+    this.deviceScaleFactor = 1;
     this.framesDecoded = 0;
     this.lastError = null;
     this._decoder = null;
@@ -313,6 +314,7 @@ export class VideoView {
       }
       this.viewportWidth = meta.viewportWidth || 0;
       this.viewportHeight = meta.viewportHeight || 0;
+      this.deviceScaleFactor = meta.deviceScaleFactor || 1;
       // 注意：canvas 后备尺寸不再随 meta 设置——编码帧可能被
       // 分辨率模式缩放（#27），后备尺寸以实际解码帧为准（见
       // WebCodecs output），CSS 显示尺寸仍按 meta 视口比例布局。
@@ -504,8 +506,8 @@ export class VideoView {
             }),
             video: {
               codec: this.codec === 'av1' ? 'av1' : this.codec === 'hevc' ? 'hevc' : 'avc',
-              width: this.viewportWidth || 1280,
-              height: this.viewportHeight || 720,
+              width: Math.round(this.viewportWidth * this.deviceScaleFactor) || 1280,
+              height: Math.round(this.viewportHeight * this.deviceScaleFactor) || 720,
             },
             fastStart: 'fragmented',
             minFragmentDuration: 0,

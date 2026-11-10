@@ -24,11 +24,17 @@ test('HTTP 兼容播放在小片段就输出，不等待 16KB 缓冲且 MIME 匹
   t.after(() => { globalThis.document = originalDocument; globalThis.MediaSource = originalMediaSource; globalThis.ResizeObserver = originalObserver; });
   const view = new VideoView(new Element(), {}, { readOnly: true });
   view.setPlaybackPath('mse');
-  view.handleVideoMessage('videoMeta', { viewportWidth: 640, viewportHeight: 480 });
+  view.handleVideoMessage('videoMeta', { viewportWidth: 640, viewportHeight: 480, deviceScaleFactor: 3 });
   const key = new Uint8Array([0,0,0,1,0x67,0x64,0,0x28,0xaa,0,0,0,1,0x68,1,0,0,0,1,0x65,0x88]);
   view.handleVideoMessage('videoFrame', key);
   open();
   view.handleVideoMessage('videoFrame', key);
   assert.ok(appended.reduce((n, data) => n + data.byteLength, 0) > 100, view.lastError || '尚未输出可播放片段');
   assert.equal(mime, 'video/mp4; codecs="avc1.640028"');
+  const bytes=Buffer.concat(appended.map((data)=>Buffer.from(data)));
+  const type=bytes.indexOf('tkhd');
+  assert.ok(type>=4);
+  const end=type-4+bytes.readUInt32BE(type-4);
+  assert.equal(bytes.readUInt32BE(end-8)/65536,1920,'MP4 轨道宽度必须声明实际像素');
+  assert.equal(bytes.readUInt32BE(end-4)/65536,1440,'MP4 轨道高度必须声明实际像素');
 });

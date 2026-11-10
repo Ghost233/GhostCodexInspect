@@ -59,6 +59,12 @@ function setupViewportSync(client, session, videoView, readOnly) {
     const w = Math.round(pane.clientWidth * 100 / currentZoom);
     const h = Math.round(pane.clientHeight * 100 / currentZoom);
     if (w < 64 || h < 64) return;
+    // 内容缩放只改变布局；视频按远程屏幕的物理像素密度采集。
+    const zoom = currentZoom / 100;
+    const renderScale = video ? Math.min(
+      zoom * Math.min(Math.max(1, window.devicePixelRatio || 1), 4),
+      7680 / w, 4320 / h,
+    ) : zoom;
     // 收敛判定：源视口已等于舞台则不发（防 meta→setViewport→meta
     // 循环）。源尺寸取自宿主最近一次 meta——宿主会话重启后 meta 回到
     // 旧视口，这里发现不一致即重发，视口重新跟随（2026-10-19 修复：
@@ -69,16 +75,21 @@ function setupViewportSync(client, session, videoView, readOnly) {
     const srcH = video
       ? (videoView ? videoView.viewportHeight : 0)
       : (session.sourceHeight || 0);
-    if (srcW === w && srcH === h) return;
-    const request = `${currentMode}:${w}:${h}:${currentZoom}`;
+    const sourceScale = video ? videoView.deviceScaleFactor || 1 : renderScale;
+    if (srcW === w && srcH === h && Math.abs(sourceScale - renderScale) < 0.001) {
+      pending = null;
+      return;
+    }
+    const request = `${currentMode}:${w}:${h}:${renderScale}`;
     if (request === pending) return;
-    if (client.setViewport(w, h, currentZoom / 100) !== false) pending = request;
+    if (client.setViewport(w, h, renderScale) !== false) pending = request;
   };
   viewportSync = () => {
     clearTimeout(timer);
     timer = setTimeout(send, 300);
   };
   viewportSync.reset = () => { pending = null; viewportSync(); };
+  window.addEventListener('resize', () => viewportSync());
   const observer = new ResizeObserver(() => viewportSync());
   for (const id of ['stage-dom', 'stage-video']) {
     const pane = $(id);

@@ -62,6 +62,8 @@ body {
   align-items: baseline;
   gap: 8px;
   min-width: 0;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .app-name {
@@ -75,11 +77,27 @@ body {
 }
 
 /* 模式指示：只读标签（模式跟随宿主会话自动切换，不再手选） */
-.mode-label {
+.mode-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   margin: 0 auto;
+  flex-shrink: 0;
+}
+
+.mode-label {
   font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
+}
+
+.traffic-stats {
+  display: inline-flex;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .mode-btn {
@@ -110,7 +128,11 @@ body {
 .topbar-right {
   display: flex;
   align-items: center;
+  min-width: 0;
+  overflow-x: auto;
 }
+
+.topbar-right > * { flex-shrink: 0; }
 
 .zoom-control {
   display: inline-flex;
@@ -141,7 +163,7 @@ body {
     padding: 6px 12px;
   }
   .topbar-left { display: none; }
-  .mode-label { width: 100%; margin: 0; }
+  .mode-status { width: 100%; margin: 0; justify-content: space-between; }
   .topbar-right { width: 100%; overflow-x: auto; }
   .topbar-right > * { flex-shrink: 0; }
 }
@@ -351,7 +373,7 @@ body {
   background: var(--bg-panel-hover);
 }
 
-/* 顶栏：刷新新鲜度指示（距上次数据到达的毫秒数；>3s 标黄） */
+/* 顶栏：心跳往返延迟（>3s 标黄） */
 .freshness {
   margin-right: 12px;
   font-size: 12px;

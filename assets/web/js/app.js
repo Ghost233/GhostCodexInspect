@@ -32,7 +32,6 @@ function applyMode(mode) {
   if (videoSettings) videoSettings.classList.toggle('hidden', mode !== 'video');
   const label = $('mode-label');
   if (label) label.textContent = MODE_LABELS[mode] || '等待会话…';
-  updateFreshness(); // 切模式立即刷新指示（另一模式可能久无数据）
   if (viewportSync) viewportSync(); // 新模式窗格尺寸回传宿主
 }
 
@@ -252,29 +251,20 @@ function setupVideoSettings(videoView) {
   }
 }
 
-/* ---------- 顶栏：刷新新鲜度指示（#17 问题 3） ---------- */
+/* ---------- 顶栏：心跳往返延迟 ---------- */
 
-/** 各通道最近一次数据到达时间（ms epoch）。 */
-const lastDataAt = { dom: 0, video: 0 };
-const FRESH_STALE_MS = 3000;
-
-function updateFreshness() {
+function updateLatency(client) {
   const el = $('freshness');
   if (!el) return;
-  if (!currentMode) {
+  if (!client.authed) {
     el.classList.add('hidden');
     return;
   }
-  const last = currentMode === 'video' ? lastDataAt.video : lastDataAt.dom;
-  if (!last) {
-    el.classList.add('hidden');
-    return;
-  }
-  const ms = Date.now() - last;
+  const ms = client.roundTripMs;
   el.classList.remove('hidden');
-  el.innerHTML =
-      '距上次刷新 <span class="freshness-num">' + ms + '</span>ms';
-  el.classList.toggle('stale', ms > FRESH_STALE_MS);
+  el.innerHTML = ms === null ? '网络延迟 测量中…' :
+      '网络延迟 <span class="freshness-num">' + Math.round(ms) + '</span>ms';
+  el.classList.toggle('stale', ms !== null && ms > 3000);
 }
 
 /* ---------- 舞台指针指示点（#17 问题 4） ---------- */
@@ -381,6 +371,16 @@ function renderShellTabs(data, client, onBeforeSwitch) {
 
 /* ---------- 启动 ---------- */
 
+function formatTrafficBytes(bytes) {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let unit = 0;
+  while (bytes >= 1000 && unit < units.length - 1) {
+    bytes /= 1000;
+    unit++;
+  }
+  return `${bytes.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
 function main() {
   setupCursorDot();
 
@@ -410,6 +410,7 @@ function main() {
     token: params.token,
     onState: (state, detail) => {
       setConnState(state, detail);
+      updateLatency(client);
       if (state === 'disconnected' || state === 'auth_failed') {
         fetch('./auth', { cache: 'no-store' })
           .then((response) => { if (response.status === 401) location.reload(); })
@@ -422,7 +423,6 @@ function main() {
       // 按通道分发（线格式权威：lib/relay/envelope.dart，键名 ch/t/data）
       if (envelope.ch === 'dom') {
         applyMode('dom'); // 模式跟随宿主会话
-        lastDataAt.dom = Date.now(); // #17 新鲜度指示
         session.handleDomMessage(envelope.t, envelope.data);
         // 首份全量快照到达后撤下占位层，露出重建画面
         if (envelope.t === 'full') {
@@ -434,7 +434,6 @@ function main() {
       } else if (envelope.ch === 'video') {
         // #22 视频流：videoMeta/videoFrame（v2 二进制 payload 为 Uint8Array）
         applyMode('video'); // 模式跟随宿主会话
-        lastDataAt.video = Date.now();
         videoView.handleVideoMessage(envelope.t, envelope.data);
         if (envelope.t === 'videoFrame') {
           const placeholder = $('video-placeholder');
@@ -463,6 +462,15 @@ function main() {
     },
   });
 
+  const updateTraffic = () => {
+    const traffic = client.traffic;
+    $('traffic-average').textContent = `${formatTrafficBytes(traffic.averageBytesPerSecond)}/s`;
+    $('traffic-total').textContent = formatTrafficBytes(traffic.totalBytes);
+    updateLatency(client);
+  };
+  updateTraffic();
+  setInterval(updateTraffic, 1000);
+
   // 视频流视图（#22）：H.264 Annex B → WebCodecs/MSE 双引擎
   const videoView = new VideoView($('video-host'), client, { readOnly });
   setupVideoSettings(videoView);
@@ -484,12 +492,11 @@ function main() {
     else inputLayer.keyboard.focus();
   });
 
-  // #17：视图尺寸模式切换（自适应/原始尺寸，双模式同步）+ 新鲜度指示
+  // #17：视图尺寸模式切换（自适应/原始尺寸，双模式同步）
   setupSizeToggle(session, videoView);
   setupZoomControls(readOnly);
   // 自适应视口跟随：舞台尺寸回传宿主覆盖目标页视口
   setupViewportSync(client, session, videoView, readOnly);
-  setInterval(updateFreshness, 250);
 
   // 中转不可达（如本地静态伺服预览）属预期：页面显示「未连接」并自动重连
   client.connect();

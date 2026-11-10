@@ -15,7 +15,13 @@
       <span class="app-sub">远程端</span>
     </div>
 
-    <span id="mode-label" class="mode-label">等待会话…</span>
+    <div class="mode-status">
+      <span id="mode-label" class="mode-label">等待会话…</span>
+      <div class="traffic-stats" title="本页启动以来的 WebSocket 消息收发合计，不含传输层开销；重连继续累计，刷新重新计数。">
+        <span>平均 <span id="traffic-average">0 B/s</span></span>
+        <span>累计 <span id="traffic-total">0 B</span></span>
+      </div>
+    </div>
 
     <div class="topbar-right">
       <div id="zoom-control" class="zoom-control" aria-label="远程界面缩放">
@@ -23,7 +29,7 @@
         <span id="zoom-value" aria-live="polite">100%</span>
         <button id="zoom-in" type="button" aria-label="放大远程界面">+</button>
       </div>
-      <!-- #17：视图尺寸模式切换（自适应/原始尺寸）与刷新新鲜度指示 -->
+      <!-- #17：视图尺寸模式切换（自适应/原始尺寸） -->
       <button id="size-toggle" class="size-toggle" aria-pressed="false">自适应</button>
       <button id="keyboard-toggle" class="size-toggle" type="button">打开键盘</button>
       <!-- #22：视频流播放路径与解码偏好（仅视频流模式生效） -->
@@ -46,7 +52,7 @@
           <option value="60">帧率：60</option>
         </select>
       </span>
-      <span id="freshness" class="freshness hidden" aria-live="off"></span>
+      <span id="freshness" class="freshness hidden" aria-live="off" title="WebSocket 心跳往返时间（RTT），不含视频采集、编码和解码耗时。"></span>
       <span id="ro-badge" class="ro-badge hidden">只读预览</span>
       <span id="conn-indicator" class="conn-indicator disconnected" title="连接状态">
         <span class="conn-dot"></span>

@@ -246,11 +246,13 @@ void main() {
         type: RelayMessageType.ping,
         seq: 1,
         ts: 0,
+        data: {'id': 42},
       ).encode(),
     );
     final pong = await nextEnvelope(queue);
     expect(pong.type, RelayMessageType.pong);
     expect(pong.channel, RelayChannel.ctrl);
+    expect(pong.data, {'id': 42});
   });
 
   test('stop 回收端口并踢掉远程端，可再次启动（幂等回收）', () async {

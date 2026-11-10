@@ -45,10 +45,13 @@ import { unzlibSync, strFromU8 } from '../vendor/fflate.js';
 
 const RECONNECT_BASE_MS = 1000; // 重连起步延迟
 const RECONNECT_MAX_MS = 15000; // 重连延迟上限
+const HEARTBEAT_INTERVAL_MS = 5000;
+const HEARTBEAT_TIMEOUT_MS = 15000;
 
 const PROTOCOL_VERSION = 1;
 /** 中转鉴权失败/超时的自定义关闭码（与 lib/relay/relay_server.dart 一致） */
 const CLOSE_UNAUTHORIZED = 4401;
+const textEncoder = new TextEncoder();
 
 /** 解析 location.hash 中的参数（支持 #t=xxx&ws=... 形式；t 为 token 的权威键名） */
 export function parseHashParams(hash) {
@@ -157,6 +160,25 @@ export class RelayClient {
     this.reconnectDelay = RECONNECT_BASE_MS;
     this.reconnectTimer = null;
     this.closedByUser = false;
+    this.roundTripMs = null;
+    this._heartbeatTimer = null;
+    this._pendingPing = null;
+    this._pingId = 0;
+    this._trafficStartedAt = performance.now();
+    this._receivedBytes = 0;
+    this._sentBytes = 0;
+  }
+
+  /** 本页启动以来的 WS 消息字节数；重连时不清零，不计传输层开销。 */
+  get traffic() {
+    const totalBytes = this._receivedBytes + this._sentBytes;
+    const elapsedSeconds = (performance.now() - this._trafficStartedAt) / 1000;
+    return {
+      receivedBytes: this._receivedBytes,
+      sentBytes: this._sentBytes,
+      totalBytes,
+      averageBytesPerSecond: elapsedSeconds > 0 ? totalBytes / elapsedSeconds : 0,
+    };
   }
 
   /** 建立连接（失败自动重连，指数退避） */
@@ -168,6 +190,8 @@ export class RelayClient {
   /** 主动断开（不再重连） */
   disconnect() {
     this.closedByUser = true;
+    this._stopHeartbeat();
+    this.authed = false;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -179,6 +203,7 @@ export class RelayClient {
   }
 
   _open() {
+    this._stopHeartbeat();
     this._setState('connecting');
     this.authed = false;
     this.seq = 0;
@@ -203,6 +228,9 @@ export class RelayClient {
     };
 
     ws.onmessage = (ev) => {
+      this._receivedBytes += typeof ev.data === 'string'
+        ? textEncoder.encode(ev.data).byteLength
+        : ev.data.byteLength;
       // 诊断计数（#22 调试）：window.__wsDbg
       const dbg = (window.__wsDbg = window.__wsDbg || { received: 0, lastErr: null, lastAt: 0 });
       dbg.received++;
@@ -237,7 +265,16 @@ export class RelayClient {
           // 服务端回显的能力清单（诊断用；旧中转无 caps 字段则视为纯文本）
           this.serverCaps = (envelope.data && envelope.data.caps) || [];
           this.binaryEnabled = this.serverCaps.includes(BINARY_CAPABILITY);
+          this._startHeartbeat();
           this._setState('authed');
+          return;
+        }
+        if (envelope.t === 'pong') {
+          const pending = this._pendingPing;
+          if (pending && envelope.data?.id === pending.id) {
+            this.roundTripMs = performance.now() - pending.sentAt;
+            this._pendingPing = null;
+          }
           return;
         }
         if (envelope.t === 'authErr') {
@@ -259,6 +296,7 @@ export class RelayClient {
     };
 
     ws.onclose = (ev) => {
+      this._stopHeartbeat();
       this.ws = null;
       const wasAuthed = this.authed;
       this.authed = false;
@@ -280,6 +318,33 @@ export class RelayClient {
     };
   }
 
+  _startHeartbeat() {
+    this._stopHeartbeat();
+    this._sendHeartbeat();
+    this._heartbeatTimer = setInterval(() => this._sendHeartbeat(), HEARTBEAT_INTERVAL_MS);
+  }
+
+  _stopHeartbeat() {
+    if (this._heartbeatTimer !== null) clearInterval(this._heartbeatTimer);
+    this._heartbeatTimer = null;
+    this._pendingPing = null;
+    this.roundTripMs = null;
+  }
+
+  _sendHeartbeat() {
+    if (!this.authed || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    const now = performance.now();
+    if (this._pendingPing) {
+      if (now - this._pendingPing.sentAt >= HEARTBEAT_TIMEOUT_MS) {
+        this.ws.close(4000, 'heartbeat timeout');
+      }
+      return;
+    }
+    const id = ++this._pingId;
+    this._pendingPing = { id, sentAt: now };
+    this._send('ctrl', 'ping', { id });
+  }
+
   _scheduleReconnect() {
     if (this.closedByUser || this.reconnectTimer) return;
     this.reconnectTimer = setTimeout(() => {
@@ -297,14 +362,16 @@ export class RelayClient {
   _send(channel, type, data) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
     this.seq += 1;
-    this.ws.send(JSON.stringify({
+    const message = JSON.stringify({
       v: PROTOCOL_VERSION,
       ch: channel,
       t: type,
       seq: this.seq,
       ts: Date.now(),
       data,
-    }));
+    });
+    this.ws.send(message);
+    this._sentBytes += textEncoder.encode(message).byteLength;
     return true;
   }
 

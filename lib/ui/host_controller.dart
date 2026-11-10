@@ -115,6 +115,7 @@ class HostController extends ChangeNotifier {
   /// 生效调试端口：profile 默认值，loadSettings() 可覆盖，UI 可改。
   static const String _kDebugPortKey = 'gci.debugPort';
   static const String _kRelayPortKey = 'gci.relayPort';
+  static const String _kRemoteWindowIdsKey = 'gci.remoteWindowIds';
 
   /// 当前使用的 CDP 调试端口（可在启动器页修改并持久化，#26）。
   int get debugPort => _debugPort;
@@ -151,6 +152,7 @@ class HostController extends ChangeNotifier {
   /// 启动时加载持久化设置（端口等）。
   Future<void> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
+    _remoteWindowIds.addAll(prefs.getStringList(_kRemoteWindowIdsKey) ?? []);
     final port = prefs.getInt(_kDebugPortKey);
     if (port != null && port >= 1024 && port <= 65535) {
       _debugPort = port;
@@ -434,6 +436,36 @@ class HostController extends ChangeNotifier {
   /// 当前会话接管的 shell 目标 id。
   String? _activeTargetId;
 
+  final Set<String> _remoteWindowIds = {};
+
+  int get remoteWindowCount => _remoteWindowIds.length;
+
+  /// 新建后，后续会话只接管这些窗口；停会话不关闭窗口或丢失绑定。
+  Future<void> createRemoteWindow() => _run('新建远程专用窗口', () async {
+    if (_sessionKind != SessionKind.none) {
+      throw StateError('请先停止中继会话，再新建远程专用窗口');
+    }
+    final connection = await _cdpConnector(debugPort: debugPort);
+    try {
+      final target = await createCodexRemoteWindow(
+        connection.client,
+        profile.shellUrlSchemes,
+      );
+      final liveIds = (await connection.client.listTargets())
+          .map((t) => t.id)
+          .toSet();
+      _remoteWindowIds.removeWhere((id) => !liveIds.contains(id));
+      _remoteWindowIds.add(target.id);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(
+        _kRemoteWindowIdsKey,
+        _remoteWindowIds.toList(),
+      );
+    } finally {
+      await connection.client.close();
+    }
+  });
+
   SessionKind get sessionKind => _sessionKind;
 
   /// shell 页面清单（无会话时为空；#16）。
@@ -455,7 +487,7 @@ class HostController extends ChangeNotifier {
   /// 启动接管会话：attach shell 页面后按种类创建 Dom/Screencast 会话。
   ///
   /// 中转必须先运行（会话要往 dom/frame 通道广播）。[targetId] 指定
-  /// 接管的 shell 页面（#16 tab 切换）；缺省取主窗口。
+  /// 接管的 shell 页面（#16 tab 切换）；新建专用窗口后缺省使用最新专用窗口。
   Future<void> startSession(SessionKind kind, {String? targetId}) =>
       _run('启动${kind.label}会话', () async {
         if (kind == SessionKind.none) return;
@@ -470,13 +502,22 @@ class HostController extends ChangeNotifier {
         try {
           final targets = await connection.client.listTargets();
           final shells = targets
-              .where((t) => isShellTarget(t, profile.shellUrlSchemes))
+              .where((t) => isPrimaryShellTarget(t, profile.shellUrlSchemes))
+              .where(
+                (t) =>
+                    _remoteWindowIds.isEmpty || _remoteWindowIds.contains(t.id),
+              )
               .toList(growable: false);
           final CdpTargetInfo shell;
           if (targetId != null) {
             shell = shells.firstWhere(
               (t) => t.id == targetId,
               orElse: () => throw StateError('目标 $targetId 不是 shell 页面（或已消失）'),
+            );
+          } else if (_remoteWindowIds.isNotEmpty) {
+            shell = shells.firstWhere(
+              (t) => t.id == _remoteWindowIds.last,
+              orElse: () => throw StateError('远程专用窗口已关闭，请重新新建；不会切回本机主窗口'),
             );
           } else {
             shell = findShellTarget(targets, profile.shellUrlSchemes);
@@ -541,7 +582,9 @@ class HostController extends ChangeNotifier {
         for (final t in _shellTargets)
           {
             'id': t.id,
-            'title': t.title,
+            'title': _remoteWindowIds.contains(t.id)
+                ? '远程窗口 ${_remoteWindowIds.toList().indexOf(t.id) + 1} · ${t.title}'
+                : t.title,
             'url': t.url,
             'primary': isPrimaryShellTarget(t, profile.shellUrlSchemes),
           },

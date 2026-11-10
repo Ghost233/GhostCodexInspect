@@ -30,7 +30,48 @@ class _AddressListController extends HostController {
   );
 }
 
+class _WindowController extends _AddressListController {
+  int windows = 0;
+  SessionKind kind = SessionKind.none;
+
+  @override
+  int get remoteWindowCount => windows;
+
+  @override
+  SessionKind get sessionKind => kind;
+
+  @override
+  Future<void> createRemoteWindow() async {
+    windows++;
+    notifyListeners();
+  }
+}
+
 void main() {
+  testWidgets('可新建专用窗口并显示接管范围，会话运行时禁用新建', (tester) async {
+    final c = _WindowController();
+    addTearDown(c.dispose);
+    tester.view.physicalSize = const Size(1600, 1600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(Brightness.light),
+        home: Scaffold(body: RelayPage(controller: c)),
+      ),
+    );
+    expect(find.text('当前主窗口（与本机共用）'), findsOneWidget);
+    final button = find.widgetWithText(OutlinedButton, '新建远程专用窗口');
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(find.text('远程专用窗口（1 个）'), findsOneWidget);
+    c.kind = SessionKind.video;
+    c.notifyListeners();
+    await tester.pumpAndSettle();
+    expect(tester.widget<OutlinedButton>(button).onPressed, isNull);
+  });
+
   testWidgets('访问入口列出全部地址，移除复制按钮并保留轮转', (tester) async {
     final c = _AddressListController();
     addTearDown(c.dispose);

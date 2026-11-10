@@ -8,3 +8,4 @@ export 'cdp_client.dart';
 export 'cdp_connector.dart';
 export 'puppeteer_cdp_client.dart';
 export 'raw_cdp_client.dart';
+export 'remote_window.dart';

@@ -214,6 +214,12 @@ class _SessionCard extends StatelessWidget {
             value: controller.cdpImplementationName ?? '—',
             mono: true,
           ),
+          FieldRow(
+            label: '接管范围',
+            value: controller.remoteWindowCount == 0
+                ? '当前主窗口（与本机共用）'
+                : '远程专用窗口（${controller.remoteWindowCount} 个）',
+          ),
           if (status is DomSessionStatus) ...[
             FieldRow(label: '事件批次', value: '${status.batchesReceived}'),
             FieldRow(label: '下发信封', value: '${status.envelopesSent}'),
@@ -238,6 +244,20 @@ class _SessionCard extends StatelessWidget {
           Text(
             '一期互斥约定：同时只允许一个中继会话；切换模式即停旧起新，'
             '远程端会自动 resync。',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: busy || kind != SessionKind.none
+                ? null
+                : controller.createRemoteWindow,
+            icon: const Icon(Icons.open_in_new, size: 16),
+            label: const Text('新建远程专用窗口'),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '停止会话后可新建专用窗口。创建后只中继专用窗口，输入和缩放不影响本机主窗口；'
+            '账号、设置、会话列表和文件仍共用。',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 12),

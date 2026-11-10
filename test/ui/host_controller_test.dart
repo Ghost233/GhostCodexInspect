@@ -14,7 +14,9 @@ class _FakeCdpPage implements CdpPage {
   @override
   final CdpTargetInfo target;
 
-  _FakeCdpPage(this.target);
+  _FakeCdpPage(this.target, {this.onNewWindow});
+
+  final void Function()? onNewWindow;
 
   final sentMethods = <String>[];
   bool closed = false;
@@ -29,6 +31,12 @@ class _FakeCdpPage implements CdpPage {
     Map<String, dynamic>? params,
   ]) async {
     sentMethods.add(method);
+    if (method == 'Runtime.evaluate' && onNewWindow != null) {
+      onNewWindow!();
+      return {
+        'result': {'value': true},
+      };
+    }
     return <String, dynamic>{};
   }
 
@@ -53,6 +61,7 @@ class _FakeCdpPage implements CdpPage {
 class _FakeCdpClient implements CdpClient {
   _FakeCdpPage? lastPage;
   bool closed = false;
+  CdpTargetInfo? windowToCreate;
 
   @override
   String get implementationName => 'fake-cdp';
@@ -60,8 +69,7 @@ class _FakeCdpClient implements CdpClient {
   @override
   Future<void> connect() async {}
 
-  @override
-  Future<List<CdpTargetInfo>> listTargets() async => const [
+  List<CdpTargetInfo> targets = const [
     CdpTargetInfo(
       id: 'shell-1',
       type: 'page',
@@ -83,8 +91,16 @@ class _FakeCdpClient implements CdpClient {
   ];
 
   @override
+  Future<List<CdpTargetInfo>> listTargets() async => targets;
+
+  @override
   Future<CdpPage> attachTo(CdpTargetInfo target) async =>
-      lastPage = _FakeCdpPage(target);
+      lastPage = _FakeCdpPage(
+        target,
+        onNewWindow: windowToCreate == null
+            ? null
+            : () => targets = [...targets, windowToCreate!],
+      );
 
   @override
   Future<void> close() async {
@@ -237,13 +253,46 @@ void main() {
     await controller.startRelay();
     await controller.startSession(SessionKind.dom);
     expect(controller.lastError, isNull);
-    expect(controller.shellTargets.map((t) => t.id), ['shell-1', 'shell-2']);
+    expect(controller.shellTargets.map((t) => t.id), ['shell-1']);
     // 默认接管主窗口（无 initialRoute 的 shell）
     expect(controller.activeShellTargetId, 'shell-1');
     expect(fakeClient.lastPage!.target.id, 'shell-1');
   });
 
+  test('单个主窗口不会把分离窗口和头像浮层页面广播为额外页签', () async {
+    fakeClient.targets = [
+      ...fakeClient.targets,
+      const CdpTargetInfo(
+        id: 'avatar',
+        type: 'page',
+        url: 'app://-/index.html?initialRoute=%2Favatar-overlay',
+        title: 'ChatGPT',
+      ),
+    ];
+    await controller.startRelay();
+    await controller.startSession(SessionKind.dom);
+    expect(controller.lastError, isNull);
+    expect(controller.shellTargets.map((t) => t.id), ['shell-1']);
+    expect(controller.activeShellTargetId, 'shell-1');
+    for (final id in ['avatar', 'shell-2']) {
+      await controller.switchTarget(id);
+      expect(controller.lastError, contains('不是 shell 页面'));
+      expect(controller.activeShellTargetId, 'shell-1');
+      expect(fakeClient.lastPage!.closed, isFalse);
+    }
+  });
+
   test('switchTarget：停旧会话并以相同模式接管新 shell（#16）', () async {
+    fakeClient.targets = [
+      fakeClient.targets.first,
+      const CdpTargetInfo(
+        id: 'shell-2',
+        type: 'page',
+        url: 'app://-/index.html',
+        title: '另一个主窗口',
+      ),
+      fakeClient.targets.last,
+    ];
     await controller.startRelay();
     await controller.startSession(SessionKind.dom);
     expect(controller.activeShellTargetId, 'shell-1');
@@ -266,6 +315,100 @@ void main() {
     expect(controller.shellTargets, isEmpty);
     expect(controller.activeShellTargetId, isNull);
     await controller.switchTarget('shell-1'); // 无会话 no-op，不崩溃
+  });
+
+  test('新建远程专用窗口后仅接管新窗口，停止重连仍保留绑定', () async {
+    const remote = CdpTargetInfo(
+      id: 'remote-1',
+      type: 'page',
+      url: 'app://-/index.html',
+      title: 'ChatGPT',
+    );
+    fakeClient.windowToCreate = remote;
+    await controller.createRemoteWindow();
+    expect(controller.lastError, isNull);
+    expect(controller.remoteWindowCount, 1);
+    expect(fakeClient.lastPage!.sentMethods, contains('Page.bringToFront'));
+    expect(fakeClient.lastPage!.closed, isTrue);
+    await controller.startRelay();
+    await controller.startSession(SessionKind.dom);
+    expect(controller.activeShellTargetId, remote.id);
+    expect(controller.shellTargets.map((t) => t.id), [remote.id]);
+    await controller.switchTarget('shell-1');
+    expect(controller.lastError, contains('不是 shell 页面'));
+    expect(controller.activeShellTargetId, remote.id);
+    await controller.stopSession();
+    await controller.startSession(SessionKind.dom);
+    expect(controller.activeShellTargetId, remote.id);
+    expect(controller.lastError, isNull);
+  });
+
+  test('专用窗口关闭后启动失败，不会自动接管本机主窗口', () async {
+    fakeClient.windowToCreate = const CdpTargetInfo(
+      id: 'remote-closed',
+      type: 'page',
+      url: 'app://-/index.html',
+      title: 'ChatGPT',
+    );
+    await controller.createRemoteWindow();
+    fakeClient.targets = fakeClient.targets
+        .where((t) => t.id != 'remote-closed')
+        .toList();
+    await controller.startRelay();
+    await controller.startSession(SessionKind.dom);
+    expect(controller.lastError, contains('不会切回本机主窗口'));
+    expect(controller.sessionKind, SessionKind.none);
+    expect(controller.activeShellTargetId, isNull);
+  });
+
+  test('宿主重启后恢复专用窗口绑定，不重新选择本机主窗口', () async {
+    fakeClient.windowToCreate = const CdpTargetInfo(
+      id: 'remote-saved',
+      type: 'page',
+      url: 'app://-/index.html',
+      title: 'ChatGPT',
+    );
+    await controller.createRemoteWindow();
+    final restored = HostController(
+      autoRefresh: false,
+      cdpConnector: ({required int debugPort}) async =>
+          CdpConnection(client: fakeClient, fellBack: false),
+    );
+    addTearDown(restored.dispose);
+    await restored.loadSettings();
+    expect(restored.remoteWindowCount, 1);
+    await restored.startRelay();
+    await restored.startSession(SessionKind.dom);
+    expect(restored.lastError, isNull);
+    expect(restored.activeShellTargetId, 'remote-saved');
+  });
+
+  test('多个专用窗口默认使用最新窗口，只允许在专用窗口之间切换', () async {
+    for (final id in ['remote-1', 'remote-2']) {
+      fakeClient.windowToCreate = CdpTargetInfo(
+        id: id,
+        type: 'page',
+        url: 'app://-/index.html',
+        title: 'ChatGPT',
+      );
+      await controller.createRemoteWindow();
+      expect(controller.lastError, isNull);
+    }
+    expect(controller.remoteWindowCount, 2);
+    await controller.startRelay();
+    await controller.startSession(SessionKind.dom);
+    expect(controller.activeShellTargetId, 'remote-2');
+    expect(controller.shellTargets.map((t) => t.id), ['remote-1', 'remote-2']);
+    await controller.switchTarget('remote-1');
+    expect(controller.lastError, isNull);
+    expect(controller.activeShellTargetId, 'remote-1');
+  });
+
+  test('客户端不支持新建窗口时明确失败，不建立专用窗口绑定', () async {
+    await controller.createRemoteWindow();
+    expect(controller.lastError, contains('新建远程窗口失败'));
+    expect(controller.remoteWindowCount, 0);
+    expect(fakeClient.lastPage!.closed, isTrue);
   });
 
   group('调试端口设置（#26）', () {

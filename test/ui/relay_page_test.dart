@@ -48,6 +48,67 @@ class _WindowController extends _AddressListController {
 }
 
 void main() {
+  testWidgets('端口设置在页面创建后加载时显示已保存端口', (tester) async {
+    SharedPreferences.setMockInitialValues({'gci.relayPort': 57303});
+    final c = HostController(autoRefresh: false);
+    addTearDown(c.dispose);
+    tester.view.physicalSize = const Size(1600, 1600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: RelayPage(controller: c)),
+      ),
+    );
+    final port = find.byType(TextField).first;
+    expect(tester.widget<TextField>(port).controller!.text, '0');
+    await c.loadSettings();
+    await tester.pumpAndSettle();
+    expect(c.relayPort, 57303);
+    expect(tester.widget<TextField>(port).controller!.text, '57303');
+    await tester.enterText(port, '57304');
+    c.notifyListeners();
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(port).controller!.text, '57304');
+  });
+
+  testWidgets('端口应用后保存并在新控制器和页面中恢复', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final c = HostController(autoRefresh: false);
+    addTearDown(c.dispose);
+    tester.view.physicalSize = const Size(1600, 1600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: RelayPage(controller: c)),
+      ),
+    );
+    final port = find.byType(TextField).first;
+    await tester.enterText(port, '57303');
+    await tester.tap(find.widgetWithText(TextButton, '应用'));
+    await tester.pumpAndSettle();
+    expect(
+      (await SharedPreferences.getInstance()).getInt('gci.relayPort'),
+      57303,
+    );
+    await tester.pumpWidget(const SizedBox());
+    final restored = HostController(autoRefresh: false);
+    addTearDown(restored.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: RelayPage(controller: restored)),
+      ),
+    );
+    await restored.loadSettings();
+    await tester.pumpAndSettle();
+    expect(restored.relayPort, 57303);
+    expect(
+      tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+      '57303',
+    );
+  });
+
   testWidgets('可新建专用窗口并显示接管范围，会话运行时禁用新建', (tester) async {
     final c = _WindowController();
     addTearDown(c.dispose);

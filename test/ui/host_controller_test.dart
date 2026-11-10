@@ -3,6 +3,7 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -428,6 +429,30 @@ void main() {
       expect(prefs.getInt('gci.debugPort'), 9300);
       expect(() => c.setDebugPort(80), throwsArgumentError);
       expect(() => c.setDebugPort(70000), throwsArgumentError);
+    });
+
+    test('保存的中转端口在控制器重建后用于实际监听', () async {
+      final reservation = await ServerSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      final port = reservation.port;
+      await reservation.close();
+      await controller.loadSettings();
+      await controller.setRelayPort(port);
+      final restored = HostController(autoRefresh: false);
+      addTearDown(restored.dispose);
+      await restored.loadSettings();
+      await restored.startRelay();
+      expect(restored.lastError, isNull);
+      expect(restored.relayStatus.running, isTrue);
+      expect(restored.relayStatus.port, port);
+      final client = HttpClient();
+      addTearDown(() => client.close(force: true));
+      final request = await client.getUrl(Uri.http('127.0.0.1:$port', '/'));
+      final response = await request.close();
+      expect(response.statusCode, HttpStatus.ok);
+      await response.drain<void>();
     });
 
     test('中转端口：默认随机(0)，可固定并持久化', () async {

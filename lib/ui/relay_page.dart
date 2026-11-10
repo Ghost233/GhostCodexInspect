@@ -656,10 +656,21 @@ class _RelayPortEditor extends StatefulWidget {
 }
 
 class _RelayPortEditorState extends State<_RelayPortEditor> {
+  late int _configuredPort = widget.controller.relayPort;
   late final TextEditingController _text = TextEditingController(
-    text: '${widget.controller.relayPort}',
+    text: '$_configuredPort',
   );
   String? _error;
+
+  @override
+  void didUpdateWidget(_RelayPortEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final port = widget.controller.relayPort;
+    if (port != _configuredPort) {
+      _configuredPort = port;
+      _text.text = '$port';
+    }
+  }
 
   @override
   void dispose() {

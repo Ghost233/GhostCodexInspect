@@ -1,5 +1,5 @@
 /// 中转台页面（工单 #13）：WS server 状态、token 展示与一键复制带
-/// token URL、已连接远程端列表、「允许局域网访问」开关、中继会话控制。
+/// token URL、访问密钥、「允许远程访问」开关、中继会话控制。
 library;
 
 import 'package:flutter/material.dart';
@@ -32,20 +32,12 @@ class RelayPage extends StatelessWidget {
             if (controller.lastError != null)
               ErrorBar(message: controller.lastError!),
             _ServerCard(controller: controller, running: running),
+            _AccessCard(controller: controller),
             _SessionCard(controller: controller, running: running),
             if (running) ...[
-              _AccessCard(controller: controller),
               _VideoCapsCard(controller: controller),
               _ClientsCard(controller: controller),
-            ] else
-              SectionCard(
-                title: '远程访问入口',
-                child: Text(
-                  '中转未运行。启动后这里会给出带 token 的访问地址、'
-                  '中继会话控制与远程端列表。',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ),
+            ],
             _SecurityNoteCard(allowLanAccess: controller.allowLanAccess),
           ].whereType<Widget>().toList(),
         );
@@ -78,8 +70,8 @@ class _ServerCard extends StatelessWidget {
             mono: true,
           ),
           FieldRow(
-            label: '允许局域网访问',
-            value: controller.allowLanAccess ? '开（绑 LAN IP）' : '关（仅 127.0.0.1）',
+            label: '允许远程访问',
+            value: controller.allowLanAccess ? '开（0.0.0.0）' : '关（仅 127.0.0.1）',
           ),
           _RelayPortEditor(controller: controller, running: running),
           const SizedBox(height: 12),
@@ -115,7 +107,7 @@ class _ServerCard extends StatelessWidget {
                         : () => controller.setLanAccess(
                             !controller.allowLanAccess,
                           ),
-                    child: const Text('允许局域网访问'),
+                    child: const Text('允许远程访问'),
                   ),
                 ],
               ),
@@ -124,8 +116,8 @@ class _ServerCard extends StatelessWidget {
           if (controller.allowLanAccess) ...[
             const SizedBox(height: 8),
             Text(
-              '局域网开关打开后，任何拿到 token 的 LAN 设备都能接管目标应用'
-              '（CDP ≈ 任意代码执行）。仅在受信网络开启。',
+              '已监听所有 IPv4 接口。远程端须通过访问密钥与 token 校验，'
+              '请妥善保管两项凭据。',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: statusToneColor(context, StatusTone.warning),
               ),
@@ -145,7 +137,7 @@ class _AccessCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final url = controller.accessUrl;
-    final token = controller.launcher.relay.token;
+    final token = controller.relayToken;
     return SectionCard(
       title: '远程访问入口',
       child: Column(
@@ -153,6 +145,19 @@ class _AccessCard extends StatelessWidget {
         children: [
           FieldRow(label: '访问地址', value: url?.toString() ?? '—', mono: true),
           FieldRow(label: '令牌', value: token ?? '—', mono: true),
+          _AccessKeyEditor(controller: controller),
+          Material(
+            type: MaterialType.transparency,
+            child: CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              title: const Text('固定 token（手动轮转）'),
+              value: controller.useFixedRelayToken,
+              onChanged: controller.busy
+                  ? null
+                  : (value) => controller.setFixedRelayToken(value ?? false),
+            ),
+          ),
           const SizedBox(height: 12),
           Wrap(
             spacing: 8,
@@ -160,11 +165,22 @@ class _AccessCard extends StatelessWidget {
               if (url != null)
                 CopyButton(text: url.toString(), label: '复制带 token URL'),
               if (token != null) CopyButton(text: token, label: '复制 token'),
+              if (controller.relayAccessKey != null)
+                CopyButton(text: controller.relayAccessKey!, label: '复制访问密钥'),
+              OutlinedButton.icon(
+                onPressed: controller.busy || token == null
+                    ? null
+                    : controller.rotateRelayToken,
+                icon: const Icon(Icons.refresh, size: 16),
+                label: const Text('立即轮转 token'),
+              ),
             ],
           ),
           const SizedBox(height: 8),
           Text(
-            '令牌每次启动中转重新生成；停止中转即全部远程端失效。',
+            controller.useFixedRelayToken
+                ? '固定 token 已保存，重启后保持不变。轮转会断开全部远程端，并要求重新验证密钥。'
+                : 'token 每次启动中转重新生成；勾选固定后保存当前 token。远程页面须先输入访问密钥。',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
@@ -352,13 +368,78 @@ class _SecurityNoteCard extends StatelessWidget {
     return SectionCard(
       title: '安全边界',
       child: Text(
-        'CDP 端口等于目标应用的任意代码执行权，token 泄漏 ≈ 整机沦陷。\n'
-        '默认仅绑 127.0.0.1；跨机访问必须走 SSH 隧道 / Tailscale，'
-        '不要裸暴露端口。${allowLanAccess ? '当前已开启局域网访问，请确认网络可信。' : ''}',
+        'CDP 连接具备控制目标应用的权限，请妥善保管访问密钥和 token。\n'
+        '默认监听 127.0.0.1，开启远程访问后监听 0.0.0.0。'
+        '${allowLanAccess ? '跨网络传输建议使用 HTTPS 代理或加密隧道。' : ''}',
         style: Theme.of(context).textTheme.bodySmall,
       ),
     );
   }
+}
+
+class _AccessKeyEditor extends StatefulWidget {
+  const _AccessKeyEditor({required this.controller});
+
+  final HostController controller;
+
+  @override
+  State<_AccessKeyEditor> createState() => _AccessKeyEditorState();
+}
+
+class _AccessKeyEditorState extends State<_AccessKeyEditor> {
+  final _text = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_text.text.trim().length < 8) {
+      setState(() => _error = '访问密钥至少 8 个字符');
+      return;
+    }
+    await widget.controller.setRelayAccessKey(_text.text);
+    if (!mounted) return;
+    if (widget.controller.lastError == null) {
+      _text.clear();
+      setState(() => _error = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 8),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: TextField(
+            controller: _text,
+            obscureText: true,
+            enabled: !widget.controller.busy,
+            decoration: InputDecoration(
+              labelText: '访问密钥',
+              hintText: widget.controller.relayAccessKey == null
+                  ? '启动时自动生成，也可自行设置'
+                  : '已保存，可复制或输入新密钥',
+              errorText: _error,
+              isDense: true,
+              border: const OutlineInputBorder(),
+            ),
+            onSubmitted: (_) => _save(),
+          ),
+        ),
+        const SizedBox(width: 8),
+        TextButton(
+          onPressed: widget.controller.busy ? null : _save,
+          child: const Text('保存密钥'),
+        ),
+      ],
+    ),
+  );
 }
 
 /// 视频设置下拉（#25）：label + 紧凑 DropdownButton。

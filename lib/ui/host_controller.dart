@@ -160,6 +160,13 @@ class HostController extends ChangeNotifier {
         (relayPort == 0 || (relayPort >= 1024 && relayPort <= 65535))) {
       _relayPort = relayPort;
     }
+    _relayAccessKey = prefs.getString(_kRelayAccessKeyKey);
+    if (_relayAccessKey == null || _relayAccessKey!.isEmpty) {
+      _relayAccessKey = RelayToken.generate();
+      await prefs.setString(_kRelayAccessKeyKey, _relayAccessKey!);
+    }
+    _fixedRelayToken = prefs.getString(_kFixedRelayTokenKey);
+    if (_fixedRelayToken?.isEmpty ?? false) _fixedRelayToken = null;
     final kbps = prefs.getInt(_kVideoBitrateKbpsKey);
     if (kbps != null && kbps >= 1000 && kbps <= 50000) {
       videoBitrateKbps = kbps;
@@ -234,8 +241,51 @@ class HostController extends ChangeNotifier {
 
   /* ---------- 中转 ---------- */
 
-  /// 「允许局域网访问」开关（下次启动中转时生效；运行中切换会重启中转）。
+  /// 远程访问开关（打开监听 0.0.0.0；运行中切换会重启中转）。
   bool allowLanAccess = false;
+
+  static const _kRelayAccessKeyKey = 'gci.relayAccessKey';
+  static const _kFixedRelayTokenKey = 'gci.fixedRelayToken';
+  String? _relayAccessKey;
+  String? _fixedRelayToken;
+
+  String? get relayAccessKey => _relayAccessKey;
+  bool get useFixedRelayToken => _fixedRelayToken != null;
+  String? get relayToken => launcher.relay.token ?? _fixedRelayToken;
+
+  Future<void> setRelayAccessKey(String key) => _run('保存访问密钥', () async {
+    if (key.trim().length < 8) throw ArgumentError('访问密钥至少 8 个字符');
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kRelayAccessKeyKey, key);
+    _relayAccessKey = key;
+    if (launcher.relay.isRunning) await launcher.relay.setAccessKey(key);
+  });
+
+  Future<void> setFixedRelayToken(bool enabled) => _run('设置固定 token', () async {
+    if (_relayAccessKey == null) await loadSettings();
+    if (enabled == useFixedRelayToken) return;
+    final prefs = await SharedPreferences.getInstance();
+    if (enabled) {
+      _fixedRelayToken = launcher.relay.token ?? RelayToken.generate();
+      await prefs.setString(_kFixedRelayTokenKey, _fixedRelayToken!);
+    } else {
+      _fixedRelayToken = null;
+      await prefs.remove(_kFixedRelayTokenKey);
+      if (launcher.relay.isRunning) await launcher.relay.rotateToken();
+    }
+  });
+
+  Future<void> rotateRelayToken() => _run('轮转 token', () async {
+    final token = RelayToken.generate();
+    if (useFixedRelayToken) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kFixedRelayTokenKey, token);
+      _fixedRelayToken = token;
+    }
+    if (launcher.relay.isRunning) {
+      await launcher.relay.rotateToken(token: token);
+    }
+  });
 
   RelayServerStatus get relayStatus => launcher.relay.status();
 
@@ -248,12 +298,18 @@ class HostController extends ChangeNotifier {
   Uri? get previewUrl {
     final url = accessUrl;
     if (url == null) return null;
-    return Uri.parse('${url.toString()}&ro=1');
+    return url.replace(host: '127.0.0.1', fragment: '${url.fragment}&ro=1');
   }
 
   /// 启动中转（默认绑 127.0.0.1）。
   Future<void> startRelay() => _run('启动中转', () async {
-    await launcher.startRelay(allowLanAccess: allowLanAccess, port: _relayPort);
+    if (_relayAccessKey == null) await loadSettings();
+    await launcher.startRelay(
+      allowLanAccess: allowLanAccess,
+      port: _relayPort,
+      accessKey: _relayAccessKey!,
+      fixedToken: _fixedRelayToken,
+    );
     // 顺带探测编码能力（#25），驱动中转台矩阵与视频设置可用性
     await refreshVideoCapabilities();
   });
@@ -264,8 +320,8 @@ class HostController extends ChangeNotifier {
     await launcher.stopRelay();
   });
 
-  /// 切换「允许局域网访问」；中转运行中会重启并换令牌。
-  Future<void> setLanAccess(bool enabled) => _run('切换局域网访问', () async {
+  /// 切换远程访问；重启中转，固定 token 保持不变。
+  Future<void> setLanAccess(bool enabled) => _run('切换远程访问', () async {
     allowLanAccess = enabled;
     if (launcher.relay.isRunning) {
       if (sessionKind != SessionKind.none) await stopSession();
@@ -273,6 +329,8 @@ class HostController extends ChangeNotifier {
       await launcher.startRelay(
         allowLanAccess: allowLanAccess,
         port: _relayPort,
+        accessKey: _relayAccessKey!,
+        fixedToken: _fixedRelayToken,
       );
     }
   });

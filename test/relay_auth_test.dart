@@ -99,9 +99,48 @@ void main() {
         isNotNull,
       );
     });
+
+    test('全接口监听允许域名与公网地址，但拒绝跨来源和跨端口请求', () {
+      expect(
+        checkWebSocketHeaders(
+          hostHeader: 'remote.example:9410',
+          originHeader: 'https://remote.example:9410',
+          allowedHosts: null,
+        ),
+        isNull,
+      );
+      expect(
+        checkWebSocketHeaders(
+          hostHeader: '203.0.113.10:9410',
+          originHeader: 'http://203.0.113.10:9410',
+          allowedHosts: null,
+        ),
+        isNull,
+      );
+      for (final origin in [
+        'https://evil.example:9410',
+        'http://remote.example:9999',
+        'null',
+      ]) {
+        expect(
+          checkWebSocketHeaders(
+            hostHeader: 'remote.example:9410',
+            originHeader: origin,
+            allowedHosts: null,
+          ),
+          isNotNull,
+        );
+      }
+    });
   });
 
   group('绑定地址选择', () {
+    test('远程访问打开时返回 0.0.0.0', () async {
+      expect(
+        await resolveBindAddress(allowLanAccess: true),
+        InternetAddress.anyIPv4,
+      );
+    });
     test('默认（局域网开关关闭）返回 127.0.0.1', () async {
       final address = await resolveBindAddress(allowLanAccess: false);
       expect(address, InternetAddress.loopbackIPv4);

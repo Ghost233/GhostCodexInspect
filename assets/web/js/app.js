@@ -410,6 +410,11 @@ function main() {
     token: params.token,
     onState: (state, detail) => {
       setConnState(state, detail);
+      if (state === 'disconnected' || state === 'auth_failed') {
+        fetch('./auth', { cache: 'no-store' })
+          .then((response) => { if (response.status === 401) location.reload(); })
+          .catch(() => {});
+      }
       // authed 后重发帧率偏好：连接建立前的发送会被静默丢弃
       if (state === 'authed') pushFrameRate();
     },

@@ -97,6 +97,7 @@ void main() {
   late _FakeCdpClient fakeClient;
 
   setUp(() {
+    SharedPreferences.setMockInitialValues({});
     fakeClient = _FakeCdpClient();
     controller = HostController(
       autoRefresh: false,
@@ -161,8 +162,57 @@ void main() {
     expect(controller.lastError, isNull);
     expect(controller.relayStatus.running, isTrue);
     expect(controller.allowLanAccess, isTrue);
+    expect(controller.relayStatus.address, '0.0.0.0');
+    expect(controller.previewUrl!.host, '127.0.0.1');
     // 重启换令牌：访问地址整体变化
     expect(controller.accessUrl.toString(), isNot(before));
+  });
+
+  test('访问密钥与固定 token 持久化，跨控制器重启保留且可手动轮转', () async {
+    await controller.loadSettings();
+    final key = controller.relayAccessKey;
+    expect(key, hasLength(22));
+    await controller.startRelay();
+    final token = controller.relayToken;
+    await controller.setFixedRelayToken(true);
+    await controller.stopRelay();
+    await controller.startRelay();
+    expect(controller.relayToken, token);
+
+    final restored = HostController(autoRefresh: false);
+    addTearDown(restored.dispose);
+    await restored.loadSettings();
+    expect(restored.relayAccessKey, key);
+    expect(restored.useFixedRelayToken, isTrue);
+    expect(restored.relayToken, token);
+    await restored.rotateRelayToken();
+    expect(restored.relayToken, isNot(token));
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('gci.fixedRelayToken'), restored.relayToken);
+
+    await controller.rotateRelayToken();
+    expect(controller.relayToken, isNot(token));
+    final rotated = controller.relayToken;
+    await controller.stopRelay();
+    await controller.startRelay();
+    expect(controller.relayToken, rotated);
+    await controller.setFixedRelayToken(false);
+    expect(controller.useFixedRelayToken, isFalse);
+    expect(prefs.containsKey('gci.fixedRelayToken'), isFalse);
+    expect(controller.relayToken, isNot(rotated));
+    expect(controller.lastError, isNull);
+  });
+
+  test('自行设置密钥后持久化，短密钥被拒绝', () async {
+    await controller.loadSettings();
+    final original = controller.relayAccessKey;
+    await controller.setRelayAccessKey('short');
+    expect(controller.relayAccessKey, original);
+    expect(controller.lastError, contains('至少 8 个字符'));
+    await controller.setRelayAccessKey('custom-access-key');
+    expect(controller.lastError, isNull);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('gci.relayAccessKey'), 'custom-access-key');
   });
 
   test('会话枚举 shell 清单并接管主窗口（#16）', () async {

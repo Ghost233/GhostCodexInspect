@@ -7,6 +7,40 @@ import 'package:ghost_codex_inspect/video/video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  testWidgets('远程访问凭据可在停止时设置，校验短密钥并可固定 token', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    tester.view.physicalSize = const Size(1600, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    final c = HostController(autoRefresh: false);
+    addTearDown(c.dispose);
+    await c.loadSettings();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(Brightness.light),
+        home: Scaffold(body: RelayPage(controller: c)),
+      ),
+    );
+    final keyField = find.widgetWithText(TextField, '访问密钥');
+    await tester.ensureVisible(keyField);
+    await tester.enterText(keyField, 'short');
+    await tester.tap(find.text('保存密钥'));
+    await tester.pumpAndSettle();
+    expect(find.text('访问密钥至少 8 个字符'), findsOneWidget);
+    await tester.enterText(keyField, 'custom-access-key');
+    await tester.tap(find.text('保存密钥'));
+    await tester.pumpAndSettle();
+    expect(c.relayAccessKey, 'custom-access-key');
+    expect(find.text('访问密钥至少 8 个字符'), findsNothing);
+    await tester.tap(find.text('固定 token（手动轮转）'));
+    await tester.pumpAndSettle();
+    expect(c.useFixedRelayToken, isTrue);
+    final token = c.relayToken;
+    await tester.tap(find.text('立即轮转 token'));
+    await tester.pumpAndSettle();
+    expect(c.relayToken, isNot(token));
+  });
+
   testWidgets('中转未运行时编码格式设置可见且可选择（#26 回归）', (tester) async {
     SharedPreferences.setMockInitialValues({});
     tester.view.physicalSize = const Size(1600, 1200);

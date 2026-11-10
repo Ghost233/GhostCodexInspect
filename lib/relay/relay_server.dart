@@ -63,8 +63,7 @@ class RelayServerStatus {
 /// - WS：单条 WebSocket 复用 dom/frame/input/ctrl 通道（信封协议见
 ///   envelope.dart），首消息令牌鉴权 + Origin/Host 校验防 DNS rebinding。
 ///
-/// 绑定策略：默认 127.0.0.1；`start(allowLanAccess: true)` 绑 LAN 网卡
-/// IPv4，绝不绑 0.0.0.0。
+/// 绑定策略：默认 127.0.0.1；`start(allowLanAccess: true)` 监听 0.0.0.0。
 class RelayServer {
   RelayServer({
     String? staticDir,
@@ -119,7 +118,10 @@ class RelayServer {
 
   HttpServer? _server;
   InternetAddress? _bindAddress;
+  InternetAddress? _accessAddress;
   String? _token;
+  String? _accessKey;
+  String _accessSession = RelayToken.generate();
   int _nextClientId = 1;
   final Map<int, _ClientSession> _clients = {};
 
@@ -131,7 +133,7 @@ class RelayServer {
   /// 绑定地址；未运行时为 null。
   InternetAddress? get bindAddress => _bindAddress;
 
-  /// 本次运行的访问令牌（每次启动重新生成）。
+  /// 本次运行的访问令牌（可由宿主传入固定值）。
   String? get token => _token;
 
   /// 当前远程端连接数。
@@ -149,7 +151,7 @@ class RelayServer {
   /// 带 token fragment 的访问 URL，供宿主 UI 展示/复制；
   /// fragment 不进 HTTP 请求与服务器日志。未运行时为 null。
   Uri? get accessUrl {
-    final address = _bindAddress;
+    final address = _accessAddress;
     final token = _token;
     final port = this.port;
     if (address == null || token == null || port == null) return null;
@@ -167,18 +169,62 @@ class RelayServer {
 
   /// 启动中转。幂等：已运行时直接返回。
   ///
-  /// [allowLanAccess] 对应宿主 UI 的「允许局域网访问」开关：打开时绑 LAN
-  /// 网卡 IPv4（没有可用网卡则抛 [RelayBindException]）；默认绑 127.0.0.1。
+  /// [allowLanAccess] 打开时监听所有 IPv4 接口；默认绑 127.0.0.1。
   /// [port] 传 0 由系统分配空闲端口。
-  Future<void> start({bool allowLanAccess = false, int port = 0}) async {
+  /// [accessKey] 设置后，HTTP 页面和 WS Upgrade 均须先通过密钥登录。
+  /// [fixedToken] 为空时每次启动生成随机 token。
+  Future<void> start({
+    bool allowLanAccess = false,
+    int port = 0,
+    String? accessKey,
+    String? fixedToken,
+  }) async {
     if (_server != null) return;
+    if (accessKey != null && accessKey.isEmpty) {
+      throw ArgumentError('访问密钥不能为空');
+    }
+    if (fixedToken != null && fixedToken.isEmpty) {
+      throw ArgumentError('固定 token 不能为空');
+    }
     final address = await resolveBindAddress(allowLanAccess: allowLanAccess);
-    final token = RelayToken.generate();
+    var accessAddress = InternetAddress.loopbackIPv4;
+    if (allowLanAccess) {
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+        includeLinkLocal: false,
+      );
+      accessAddress =
+          pickLanAddress(interfaces.expand((i) => i.addresses)) ??
+          accessAddress;
+    }
     final handler = _buildHandler(address);
     final server = await shelf_io.serve(handler, address, port);
     _server = server;
     _bindAddress = address;
-    _token = token;
+    _accessAddress = accessAddress;
+    _token = fixedToken ?? RelayToken.generate();
+    _accessKey = accessKey;
+    _accessSession = RelayToken.generate();
+  }
+
+  /// 手动轮转令牌：撤销登录状态，断开全部连接，旧 token 立即失效。
+  Future<void> rotateToken({String? token}) async {
+    if (token != null && token.isEmpty) throw ArgumentError('token 不能为空');
+    _token = token ?? RelayToken.generate();
+    await _revokeAccess();
+  }
+
+  Future<void> setAccessKey(String key) async {
+    if (key.isEmpty) throw ArgumentError('访问密钥不能为空');
+    _accessKey = key;
+    await _revokeAccess();
+  }
+
+  Future<void> _revokeAccess() async {
+    _accessSession = RelayToken.generate();
+    for (final client in _clients.values.toList()) {
+      await client.close(kRelayCloseUnauthorized, '凭据已更新，请重新登录');
+    }
   }
 
   /// 停止中转：踢掉全部远程端、回收端口。不退出应用进程（对齐 MacLauncher
@@ -189,6 +235,9 @@ class RelayServer {
     _server = null;
     _token = null;
     _bindAddress = null;
+    _accessAddress = null;
+    _accessKey = null;
+    _accessSession = RelayToken.generate();
     for (final client in _clients.values.toList()) {
       await client.close(1000, '中转停止');
     }
@@ -240,15 +289,36 @@ class RelayServer {
   void _notifyAuthed(int clientId) => onClientAuthed?.call(clientId);
 
   Handler _buildHandler(InternetAddress address) {
-    final allowedHosts = <String>{address.address};
+    final allowedHosts = address == InternetAddress.anyIPv4
+        ? null
+        : <String>{address.address};
     // 绑回环时浏览器常以 localhost 访问，二者等价放行。
-    if (address.isLoopback) allowedHosts.add('localhost');
+    if (address.isLoopback) allowedHosts!.add('localhost');
     final staticHandler = createStaticHandler(
       staticDir,
       defaultDocument: 'index.html',
     );
     final wsHandler = webSocketHandler(_onWebSocketConnect);
     return (Request request) async {
+      if (request.url.path == 'auth') return _login(request, allowedHosts);
+      if (_accessKey != null && !_hasAccess(request)) {
+        if (request.url.path.isEmpty ||
+            request.url.path == 'index.html' ||
+            request.url.path == 'login.html') {
+          return Response.ok(
+            await File('$staticDir/login.html').readAsString(),
+            headers: {
+              'content-type': 'text/html; charset=utf-8',
+              'cache-control': 'no-store',
+              'content-security-policy': "frame-ancestors 'none'",
+            },
+          );
+        }
+        return Response.unauthorized(
+          '请先输入访问密钥',
+          headers: {'cache-control': 'no-store'},
+        );
+      }
       if (request.url.path == wsPath) {
         // 纵深防御：防 DNS rebinding 借浏览器跨站页面打回环服务。
         final rejectReason = checkWebSocketHeaders(
@@ -265,12 +335,77 @@ class RelayServer {
         return wsHandler(request);
       }
       // 静态伺服只服务 assets/web 内已知路径，shelf_static 已防目录遍历。
-      // cache-control: no-cache 强制浏览器每次回源校验（配合 etag 仍 304），
-      // 避免启发式缓存把旧版 JS 留在远程端——2026-10-19 事故：旧 video.js
-      // 只支持 H.264 编码头，导致切 H.265 后黑屏。
+      // 页面和资源不缓存，凭据更新后重新加载必须再次登录。
       final response = await staticHandler(request);
-      return response.change(headers: {'cache-control': 'no-cache'});
+      return response.change(headers: {'cache-control': 'no-store'});
     };
+  }
+
+  bool _hasAccess(Request request) {
+    final cookies = request.headers['cookie'] ?? '';
+    return cookies.split(';').any((part) {
+      final pair = part.trim().split('=');
+      return pair.length == 2 &&
+          pair[0] == 'gci_access_$port' &&
+          RelayToken.equals(pair[1], _accessSession);
+    });
+  }
+
+  Future<Response> _login(Request request, Set<String>? allowedHosts) async {
+    const headers = {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+    };
+    if (request.method == 'GET') {
+      return Response(
+        _accessKey == null || _hasAccess(request)
+            ? HttpStatus.ok
+            : HttpStatus.unauthorized,
+        body: '{}',
+        headers: headers,
+      );
+    }
+    if (request.method != 'POST' ||
+        request.headers['content-type']?.split(';').first.trim() !=
+            'application/json') {
+      return Response(HttpStatus.badRequest, headers: headers);
+    }
+    if (checkWebSocketHeaders(
+          hostHeader: request.headers['host'],
+          originHeader: request.headers['origin'],
+          allowedHosts: allowedHosts,
+        ) !=
+        null) {
+      return Response.forbidden('{}', headers: headers);
+    }
+    final body = <int>[];
+    await for (final chunk in request.read()) {
+      body.addAll(chunk);
+      if (body.length > 4096) {
+        return Response(HttpStatus.requestEntityTooLarge, headers: headers);
+      }
+    }
+    Object? data;
+    try {
+      data = jsonDecode(utf8.decode(body));
+    } on FormatException {
+      return Response(HttpStatus.badRequest, headers: headers);
+    }
+    final key = data is Map ? data['key'] : null;
+    if (_accessKey == null ||
+        key is! String ||
+        !RelayToken.equals(key, _accessKey!)) {
+      return Response.unauthorized('{}', headers: headers);
+    }
+    final cookie = Cookie('gci_access_$port', _accessSession)
+      ..httpOnly = true
+      ..sameSite = SameSite.strict
+      ..secure = request.requestedUri.scheme == 'https'
+      ..path = '/';
+    return Response.ok(
+      '{}',
+      headers: {...headers, 'set-cookie': cookie.toString()},
+    );
   }
 
   void _onWebSocketConnect(WebSocketChannel channel, String? protocol) {
@@ -284,42 +419,40 @@ class RelayServer {
 /// 防 DNS rebinding 的 WS Upgrade 头校验（纯函数，可测）。
 ///
 /// 返回 null 表示放行；否则返回拒绝原因。
-/// - Host 头必须存在且主机名在 [allowedHosts] 内（忽略端口，为二期隧道
-///   前置代理留余地）；
-/// - Origin 头存在时（浏览器 WS 必带）必须是 http/https 且主机名同样在
-///   [allowedHosts] 内；非浏览器客户端可不携带 Origin。
+/// - Host 须合法，且在 [allowedHosts] 内；全接口监听时清单为 null。
+/// - 浏览器 Origin 必须与 Host 同源（含端口）；非浏览器可不带 Origin。
 String? checkWebSocketHeaders({
   required String? hostHeader,
   required String? originHeader,
-  required Set<String> allowedHosts,
+  required Set<String>? allowedHosts,
 }) {
   final host = hostHeader?.trim();
   if (host == null || host.isEmpty) {
     return '缺少 Host 头';
   }
-  if (!allowedHosts.contains(_hostNameOf(host))) {
+  final hostUri = Uri.tryParse('http://$host');
+  if (hostUri == null ||
+      hostUri.host.isEmpty ||
+      hostUri.userInfo.isNotEmpty ||
+      hostUri.path.isNotEmpty ||
+      hostUri.hasQuery ||
+      hostUri.hasFragment) {
+    return 'Host 头无效';
+  }
+  if (allowedHosts != null && !allowedHosts.contains(hostUri.host)) {
     return 'Host 头不在允许清单：$host';
   }
   final origin = originHeader?.trim();
-  if (origin != null && origin.isNotEmpty && origin != 'null') {
+  if (origin != null && origin.isNotEmpty) {
     final uri = Uri.tryParse(origin);
     if (uri == null ||
         (uri.scheme != 'http' && uri.scheme != 'https') ||
-        !allowedHosts.contains(uri.host)) {
+        uri.host != hostUri.host ||
+        uri.authority != host) {
       return 'Origin 头不在允许清单：$origin';
     }
   }
   return null;
-}
-
-/// 从 Host 头提取主机名（去端口；兼容 IPv6 字面量 `[::1]:8080`）。
-String _hostNameOf(String hostHeader) {
-  if (hostHeader.startsWith('[')) {
-    final end = hostHeader.indexOf(']');
-    return end > 0 ? hostHeader.substring(1, end) : hostHeader;
-  }
-  final i = hostHeader.lastIndexOf(':');
-  return i > 0 ? hostHeader.substring(0, i) : hostHeader;
 }
 
 /// 单个远程端连接会话：鉴权状态机 + 每连接出站 seq 计数。

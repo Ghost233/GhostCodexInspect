@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_codex_inspect/main.dart';
 import 'package:ghost_codex_inspect/ui/host_controller.dart';
+import 'package:ghost_codex_inspect/ui/relay_page.dart';
 
 void main() {
   testWidgets('主界面冒烟：侧栏四模块 + 启动器页渲染', (tester) async {
@@ -40,12 +41,17 @@ void main() {
 
     expect(find.text('WebSocket 服务'), findsOneWidget);
     expect(find.text('启动中转'), findsOneWidget);
-    expect(find.text('允许局域网访问'), findsWidgets);
+    expect(find.text('允许远程访问'), findsWidgets);
     // 会话卡（含视频参数）常驻后页面变长，安全边界卡需滚入视口
     await tester.scrollUntilVisible(
       find.text('安全边界'),
       200,
-      scrollable: find.byType(Scrollable).last,
+      scrollable: find
+          .descendant(
+            of: find.byType(RelayPage),
+            matching: find.byType(Scrollable),
+          )
+          .first,
     );
     expect(find.text('安全边界'), findsOneWidget);
   });

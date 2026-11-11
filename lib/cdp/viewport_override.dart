@@ -57,12 +57,14 @@ Future<void> applyViewportOverride(
     'deviceScaleFactor': deviceScaleFactor,
     'mobile': false,
     if (nativeDeviceScaleFactor != null) ...{
-      'scale': 1,
+      // CSS 布局不变；渲染比例与可见表面必须同时按 DPR 换算。
+      // 只缩小表面、仍用 scale=1 会裁切内容；只改布局又会损失采集像素。
+      'scale': deviceScaleFactor / nativeDeviceScaleFactor,
       'dontSetVisibleSize': true,
     },
   });
   if (nativeDeviceScaleFactor != null) {
-    // Chromium 实时采集取原生表面；让表面容纳手机要求的实际像素。
+    // 可见表面使用宿主 DIP，配合上面的 scale 保留整个逻辑视口。
     await page.send('Emulation.setVisibleSize', {
       'width': (width * deviceScaleFactor / nativeDeviceScaleFactor).ceil(),
       'height': (height * deviceScaleFactor / nativeDeviceScaleFactor).ceil(),

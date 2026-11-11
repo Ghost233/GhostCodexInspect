@@ -7,7 +7,10 @@ class Element {
   appendChild() {}
 }
 
-test('HTTP 兼容播放在小片段就输出，不等待 16KB 缓冲且 MIME 匹配 SPS', (t) => {
+for (const size of [
+  { width:640, height:480, dpr:3, pixels:[1920,1440] },
+  { width:780, height:1556, dpr:1.375, pixels:[1074,2140] },
+]) test(`HTTP 兼容播放 DPR=${size.dpr}：小片段及时输出，轨道像素匹配编码器`, (t) => {
   const appended = [];
   let mime;
   let open;
@@ -25,7 +28,7 @@ test('HTTP 兼容播放在小片段就输出，不等待 16KB 缓冲且 MIME 匹
   t.after(() => { globalThis.document = originalDocument; globalThis.MediaSource = originalMediaSource; globalThis.ResizeObserver = originalObserver; });
   const view = new VideoView(new Element(), {}, { readOnly: true });
   view.setPlaybackPath('mse');
-  view.handleVideoMessage('videoMeta', { viewportWidth: 640, viewportHeight: 480, deviceScaleFactor: 3 });
+  view.handleVideoMessage('videoMeta', { viewportWidth:size.width, viewportHeight:size.height, deviceScaleFactor:size.dpr });
   const key = new Uint8Array([0,0,0,1,0x67,0x64,0,0x28,0xaa,0,0,0,1,0x68,1,0,0,0,1,0x65,0x88]);
   view.handleVideoMessage('videoFrame', key);
   open();
@@ -36,8 +39,8 @@ test('HTTP 兼容播放在小片段就输出，不等待 16KB 缓冲且 MIME 匹
   const type=bytes.indexOf('tkhd');
   assert.ok(type>=4);
   const end=type-4+bytes.readUInt32BE(type-4);
-  assert.equal(bytes.readUInt32BE(end-8)/65536,1920,'MP4 轨道宽度必须声明实际像素');
-  assert.equal(bytes.readUInt32BE(end-4)/65536,1440,'MP4 轨道高度必须声明实际像素');
+  assert.equal(bytes.readUInt32BE(end-8)/65536,size.pixels[0],'MP4 轨道宽度必须声明实际像素');
+  assert.equal(bytes.readUInt32BE(end-4)/65536,size.pixels[1],'MP4 轨道高度必须声明实际像素');
   const before = bytes.byteLength;
   view.handleVideoMessage('videoFrame', new Uint8Array([0,0,0,1,0x41,0x88]));
   assert.ok(appended.reduce((n,data)=>n+data.byteLength,0)>before,

@@ -49,6 +49,67 @@ void main() {
   const locator = FfmpegLocator();
 
   group('FfmpegVideoEncoder（真 ffmpeg 集成）', () {
+    test('分数 DPR 的奇数像素截图保留内容并编码成偶数尺寸', () async {
+      final lookup = await locator.find();
+      if (!lookup.available) return;
+      final jpeg = await Process.run(lookup.path!, [
+        '-v',
+        'error',
+        '-f',
+        'lavfi',
+        '-i',
+        'testsrc=size=321x181:rate=1,format=yuv420p',
+        '-frames:v',
+        '1',
+        '-f',
+        'image2pipe',
+        '-vcodec',
+        'mjpeg',
+        '-',
+      ], stdoutEncoding: null);
+      expect(jpeg.exitCode, 0, reason: '${jpeg.stderr}');
+      final encoder = FfmpegVideoEncoder(
+        ffmpegPath: lookup.path!,
+        kind: VideoEncoderKind.software,
+        outputSize: (width: 322, height: 182),
+      );
+      await encoder.start();
+      addTearDown(encoder.stop);
+      final aus = <int>[];
+      final sub = encoder.accessUnits.listen(
+        aus.addAll,
+        onError: (Object _) {},
+      );
+      addTearDown(sub.cancel);
+      for (var i = 0; i < 12; i++) {
+        encoder.writeFrame(Uint8List.fromList(jpeg.stdout as List<int>));
+        await Future<void>.delayed(const Duration(milliseconds: 33));
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(aus, isNotEmpty, reason: encoder.lastStderr);
+      final decode = await Process.start(lookup.path!, [
+        '-v',
+        'error',
+        '-f',
+        'h264',
+        '-i',
+        'pipe:0',
+        '-frames:v',
+        '1',
+        '-f',
+        'framehash',
+        'pipe:1',
+      ]);
+      final decoded = decode.stdout.transform(utf8.decoder).join();
+      final errors = decode.stderr.transform(utf8.decoder).join();
+      decode.stdin.add(aus);
+      await decode.stdin.close();
+      expect(await decode.exitCode, 0, reason: await errors);
+      final metadata = await decoded;
+      expect(metadata, contains('#dimensions 0: 322x182'));
+      expect(metadata, contains('#sar 0: 1/1'), reason: '方形像素才能保持播放器显示比例');
+    });
+
     test('一张截图只产生一个完整视频帧，不能把编码切片当作帧', () async {
       final lookup = await locator.find();
       if (!lookup.available) return;

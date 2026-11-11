@@ -87,6 +87,7 @@ class FfmpegVideoEncoder {
     this.bitrateKbps,
     this.gopSize = 12,
     this.nominalFps = 30,
+    this.outputSize,
   });
 
   /// ffmpeg 可执行文件路径（来自 FfmpegLocator）。
@@ -107,6 +108,9 @@ class FfmpegVideoEncoder {
 
   /// 名义帧率（喂给 ffmpeg 的时间基准；实际帧间隔由远程端到达时间决定）。
   final int nominalFps;
+
+  /// 同一条视频流固定物理尺寸，避免截图舍入导致解码尺寸来回变化。
+  final ({int width, int height})? outputSize;
 
   Process? _process;
   bool _writePending = false;
@@ -166,6 +170,11 @@ class FfmpegVideoEncoder {
       '-use_wallclock_as_timestamps', '1',
       '-framerate', '$nominalFps',
       '-i', 'pipe:0',
+      // 手机分数 DPR 会产生奇数像素或截图舍入差异；输出固定偶数尺寸。
+      if (outputSize != null) ...[
+        '-vf',
+        'scale=${outputSize!.width}:${outputSize!.height},setsar=1',
+      ],
       '-c:v', encoder,
       // 原样输出输入帧；默认帧率同步会补出大量重复画面并挤占实时流量。
       '-fps_mode', 'passthrough',

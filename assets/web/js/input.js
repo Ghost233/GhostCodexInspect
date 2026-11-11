@@ -122,33 +122,76 @@ export class KeyboardForwarder {
 
 /** 两种画面共享的鼠标/触摸输入，避免浏览器兼容鼠标事件重复或丢失。 */
 export function bindPointerInput(target, { toSource, send, keyboard, getRect = () => target.getBoundingClientRect(), isEditable = (point) => keyboard.contains?.(point) || false }) {
-  const trackpad = new Trackpad(target, { toSource, getRect, send, keyboard, isEditable });
   let pointerId = null;
   let lastPoint = null;
   let button = 'left';
   let lastMove = 0;
   let start = null;
+  let pressed = false;
+  let multiTouch = false;
+  const touches = new Map();
+  const cancelDirect = () => {
+    if (pressed) send({ kind: 'mouse', action: 'up', ...lastPoint, button, clickCount: 1 });
+    pointerId = lastPoint = start = null;
+    pressed = multiTouch = false;
+    touches.clear();
+  };
+  const press = () => {
+    if (pressed) return;
+    send({ kind: 'mouse', action: 'down', ...start.point, button, clickCount: 1 });
+    pressed = true;
+  };
+  const trackpad = new Trackpad(target, { toSource, getRect, send, keyboard, isEditable, onCancel: cancelDirect });
+  const center = () => {
+    const [a, b] = touches.values();
+    return { clientX: (a.clientX + b.clientX) / 2, clientY: (a.clientY + b.clientY) / 2 };
+  };
   target.style.touchAction = 'none';
   target.addEventListener('pointerdown', (e) => {
     if (trackpad.handles(e)) return;
-    if (e.isPrimary === false || pointerId !== null) return;
+    const touch = e.pointerType === 'touch';
+    if (touches.has(e.pointerId)) return;
+    if ((!touch || touches.size === 0) && (e.isPrimary === false || pointerId !== null)) return;
     const point = toSource(e);
     if (!point) return;
     e.preventDefault();
+    target.setPointerCapture(e.pointerId);
+    if (touch) {
+      touches.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+      if (touches.size > 1 || multiTouch) {
+        multiTouch = true;
+        if (pressed) send({ kind: 'mouse', action: 'up', ...lastPoint, button, clickCount: 1 });
+        pressed = false;
+        return;
+      }
+    }
     pointerId = e.pointerId;
     lastPoint = point;
-    start = { x: e.clientX, y: e.clientY };
+    start = { x: e.clientX, y: e.clientY, point };
     button = e.button === 2 ? 'right' : e.button === 1 ? 'middle' : 'left';
-    target.setPointerCapture(e.pointerId);
-    send({ kind: 'mouse', action: 'down', ...point, button, clickCount: 1 });
-    if (e.pointerType !== 'touch') keyboard.focus(undefined, isEditable(point));
+    // 触摸先判定单指点击/拖动，避免第二指落下前就误按远程按钮。
+    if (!touch) { press(); keyboard.focus(undefined, isEditable(point)); }
   });
   target.addEventListener('pointermove', (e) => {
     if (trackpad.handles(e)) return;
+    if (touches.has(e.pointerId)) {
+      e.preventDefault();
+      const before = multiTouch && touches.size === 2 ? toSource(center()) : null;
+      touches.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+      if (multiTouch) {
+        const point = touches.size === 2 ? toSource(center()) : null;
+        if (before && point) send({ kind: 'wheel', ...point, deltaX: before.x - point.x, deltaY: before.y - point.y });
+        return;
+      }
+    }
     if (e.isPrimary === false || (e.pointerType === 'touch' && pointerId !== e.pointerId)) return;
     const point = toSource(e);
     if (!point) return;
     lastPoint = point;
+    if (e.pointerType === 'touch' && !pressed) {
+      if (Math.hypot(e.clientX - start.x, e.clientY - start.y) < 12) return;
+      press();
+    }
     const now = performance.now();
     if (now - lastMove < MOUSE_MOVE_MIN_MS) return;
     lastMove = now;
@@ -157,18 +200,27 @@ export function bindPointerInput(target, { toSource, send, keyboard, getRect = (
   });
   const finish = (e, cancelled) => {
     if (trackpad.handles(e)) return;
+    if (e.pointerType === 'touch') {
+      if (!touches.delete(e.pointerId)) return;
+      e.preventDefault();
+      if (multiTouch) {
+        // 双指结束后，剩余单指仍属于此次滚动，全部抬起才恢复点击。
+        if (touches.size === 0) cancelDirect();
+        return;
+      }
+    }
     if (pointerId !== e.pointerId) return;
     e.preventDefault();
     const point = toSource(e) || lastPoint;
-    send({ kind: 'mouse', action: 'up', ...point, button, clickCount: 1 });
-    pointerId = null;
-    lastPoint = null;
+    if (!cancelled) press();
+    if (pressed) send({ kind: 'mouse', action: 'up', ...point, button, clickCount: 1 });
+    pressed = false;
     if (!cancelled && e.pointerType === 'touch') {
       const tapped = Math.hypot(e.clientX - start.x, e.clientY - start.y) < 12;
       if (tapped && isEditable(point)) keyboard.focus({ x: e.clientX, y: e.clientY });
       else keyboard.blur?.();
     }
-    start = null;
+    cancelDirect();
   };
   target.addEventListener('pointerup', (e) => finish(e, false));
   target.addEventListener('pointercancel', (e) => finish(e, true));

@@ -1,7 +1,7 @@
 /** 手机触控板：本地光标、相对移动、双指滚轮和可信鼠标按键。 */
 export class Trackpad {
-  constructor(target, { toSource, getRect, send, keyboard, isEditable }) {
-    Object.assign(this, { target, toSource, getRect, send, keyboard, isEditable });
+  constructor(target, { toSource, getRect, send, keyboard, isEditable, onCancel }) {
+    Object.assign(this, { target, toSource, getRect, send, keyboard, isEditable, onCancel });
     this.mode = 'direct';
     this.position = { x: 0.5, y: 0.5 };
     this.dragLocked = false;
@@ -21,7 +21,8 @@ export class Trackpad {
       target.addEventListener(name, (e) => { if (this.touches.has(e.pointerId)) this.cancel(); });
     }
     new ResizeObserver(() => this.render()).observe(target);
-    globalThis.addEventListener?.('blur', () => this.cancel());
+    // DOM 重绘 iframe 获取焦点也会触发 window blur，此时仍在同一页面内。
+    globalThis.addEventListener?.('blur', () => { if (!document.hasFocus()) this.cancel(); });
     globalThis.addEventListener?.('pagehide', () => this.cancel());
   }
 
@@ -100,6 +101,7 @@ export class Trackpad {
   }
 
   cancel() {
+    this.onCancel?.();
     this.flushMove();
     if (this.pressed) this.mouse('up', 'left', this.double ? 2 : 1);
     this.pressed = this.dragLocked = false;

@@ -1,4 +1,4 @@
-// 隔离 Electron + 手机浏览器：DOM／视频两种模式验证触控板可信输入。
+// 隔离 Electron + 手机浏览器：DOM／视频验证直接触摸与触控板可信输入。
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -65,10 +65,15 @@ Future<void> main() async {
       findShellTarget(await connection.client.listTargets(), ['file']),
     );
     await page.evaluate('''(() => {
-      Object.assign(document.body.style,{minHeight:'3000px'});
+      Object.assign(document.body.style,{minHeight:'3000px',minWidth:'3000px'});
       Object.assign(document.getElementById('counter-btn').style,{position:'fixed',left:'40%',top:'40%',width:'70px',height:'40px'});
       Object.assign(document.getElementById('echo-input').style,{position:'fixed',left:'30%',top:'60%',width:'160px',margin:'0'});
       window.__right=0;window.__drag=0;window.__held=false;window.__double=0;
+      window.__clicks=0;window.__wheels=0;
+      window.__mouseEvents=[];
+      for(const type of ['mousedown','mouseup','click','dblclick']) window.addEventListener(type,e=>{window.__mouseEvents.push({type,x:e.clientX,y:e.clientY,detail:e.detail,target:e.target.id});if(window.__mouseEvents.length>30)window.__mouseEvents.shift();});
+      window.addEventListener('click',()=>window.__clicks++);
+      window.addEventListener('wheel',()=>window.__wheels++);
       window.addEventListener('dblclick',()=>window.__double++);
       window.addEventListener('contextmenu',e=>{e.preventDefault();window.__right++;});
       window.addEventListener('mousedown',e=>{window.__held=true;window.__lastDown={x:e.clientX,y:e.clientY,target:e.target.id};});
@@ -136,11 +141,109 @@ Future<void> main() async {
         );
       }
       await remote.click('#more-settings summary');
-      await remote.select('#input-mode', ['trackpad']);
+      await remote.select('#input-mode', ['direct']);
       await remote.click('#more-settings summary');
       final pointer = mode == 'dom'
           ? 'window.__remote.inputLayer.pointer'
           : 'window.__remote.videoView.pointer';
+      Future<pp.Point> screenPoint(String selector) async {
+        final bounds = await page.evaluate(
+          "JSON.stringify((()=>{const r=document.querySelector('$selector').getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};})())",
+        );
+        final point = jsonDecode(
+          await remote.evaluate(
+            'JSON.stringify((()=>{const b=$bounds,p=$pointer.point(),q=$pointer.toSource({clientX:p.x+1,clientY:p.y+1});return {x:p.x+(b.x-p.source.x)/(q.x-p.source.x),y:p.y+(b.y-p.source.y)/(q.y-p.source.y)};})())',
+          ) as String,
+        ) as Map;
+        return pp.Point(point['x'] as num, point['y'] as num);
+      }
+
+      // 第一指落在输入框上也不能误点击；双指中点应滚动其所在区域。
+      final input = await screenPoint('#echo-input');
+      final beforeScrollX = await page.evaluate('scrollX') as num;
+      final beforeScrollY = await page.evaluate('scrollY') as num;
+      final beforeClicks = await page.evaluate('window.__clicks');
+      await remote.devTools.input.dispatchTouchEvent('touchStart', [
+        TouchPoint(x: input.x, y: input.y, id: 1),
+      ]);
+      await remote.devTools.input.dispatchTouchEvent('touchStart', [
+        TouchPoint(x: input.x, y: input.y, id: 1),
+        TouchPoint(x: input.x + 60, y: input.y, id: 2),
+      ]);
+      await remote.devTools.input.dispatchTouchEvent('touchMove', [
+        TouchPoint(x: input.x - 40, y: input.y - 80, id: 1),
+        TouchPoint(x: input.x + 20, y: input.y - 80, id: 2),
+      ]);
+      await until(
+        () async =>
+            (await page.evaluate('scrollX') as num) > beforeScrollX &&
+            (await page.evaluate('scrollY') as num) > beforeScrollY,
+        '直接触摸双指未按自然方向横向/纵向滚动',
+      );
+      await remote.devTools.input.dispatchTouchEvent('touchEnd', [
+        TouchPoint(x: input.x + 20, y: input.y - 80, id: 2),
+      ]);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      final wheels = await page.evaluate('window.__wheels');
+      await remote.devTools.input.dispatchTouchEvent('touchMove', [
+        TouchPoint(x: input.x, y: input.y - 120, id: 2),
+      ]);
+      await remote.devTools.input.dispatchTouchEvent('touchEnd', []);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      if (await page.evaluate('window.__wheels') != wheels ||
+          await page.evaluate('window.__clicks') != beforeClicks ||
+          await page.evaluate('window.__held') != false ||
+          await remote.evaluate(
+                "document.activeElement.classList.contains('ime-proxy')",
+              ) ==
+              true) {
+        throw StateError('双指滚动误触发点击/键盘，或剩余单指继续转发输入');
+      }
+      await remote.touchscreen.tap(await screenPoint('#echo-input'));
+      await until(
+        () => remote.evaluate<bool>(
+          "document.activeElement.classList.contains('ime-proxy')",
+        ),
+        '双指结束后单指点击输入框未唤起键盘',
+      );
+      await remote.keyboard.type('direct-$mode');
+      await until(
+        () async => (await page.evaluate(
+          "document.getElementById('echo-input').value",
+        ) as String).contains('direct-$mode'),
+        '直接触摸输入未进入目标输入框',
+      );
+      final directClicks = await page.evaluate('count') as num;
+      await remote.touchscreen.tap(await screenPoint('#counter-btn'));
+      await until(
+        () async => await page.evaluate('count') == directClicks + 1,
+        '双指结束后单指点击未恢复',
+      );
+      final directDrag = await page.evaluate('window.__drag') as num;
+      await remote.devTools.input.dispatchTouchEvent('touchStart', [
+        TouchPoint(x: 80, y: 400, id: 1),
+      ]);
+      await remote.devTools.input.dispatchTouchEvent('touchMove', [
+        TouchPoint(x: 130, y: 420, id: 1),
+      ]);
+      await until(
+        () async => await page.evaluate('window.__held') == true,
+        '直接触摸单指拖拽未按住左键',
+      );
+      await remote.devTools.input.dispatchTouchEvent('touchEnd', []);
+      await until(
+        () async =>
+            (await page.evaluate('window.__drag') as num) > directDrag &&
+            await page.evaluate('window.__held') == false,
+        '直接触摸单指拖拽未完成或未释放',
+      );
+      stdout.writeln(
+        'PASS $mode direct: two-finger horizontal/vertical scrolling without clicks or keyboard; remaining finger suppressed; single-finger click, keyboard and drag restored.',
+      );
+      await page.evaluate('window.scrollTo(0,0)');
+      await remote.click('#more-settings summary');
+      await remote.select('#input-mode', ['trackpad']);
+      await remote.click('#more-settings summary');
       Future<void> swipe(num dx, num dy) async {
         await remote.devTools.input.dispatchTouchEvent('touchStart', [
           TouchPoint(x: 100, y: 400, id: 1),
@@ -188,10 +291,17 @@ Future<void> main() async {
       final doubles = await page.evaluate('window.__double') as num;
       await remote.touchscreen.tap(pp.Point(100, 400));
       await remote.touchscreen.tap(pp.Point(100, 400));
-      await until(
-        () async => (await page.evaluate('window.__double') as num) > doubles,
-        '双击未送达目标',
-      );
+      try {
+        await until(
+          () async => (await page.evaluate('window.__double') as num) > doubles,
+          '双击未送达目标',
+        );
+      } catch (_) {
+        stderr.writeln(
+          'DOUBLE SOURCE ${await page.evaluate('JSON.stringify(window.__mouseEvents)')} POINTER ${await remote.evaluate('JSON.stringify({now:performance.now(),tap:$pointer.lastTap,double:$pointer.double,point:$pointer.point()})')}',
+        );
+        rethrow;
+      }
       await Future<void>.delayed(const Duration(milliseconds: 350));
       final gestureDrag = await page.evaluate('window.__drag') as num;
       await remote.touchscreen.tap(pp.Point(100, 400));
@@ -241,11 +351,11 @@ Future<void> main() async {
         ),
         '点击输入框未唤起键盘代理',
       );
-      await remote.keyboard.type(mode);
+      await remote.keyboard.type('trackpad-$mode');
       await until(
         () async => (await page.evaluate(
           "document.getElementById('echo-input').value",
-        ) as String).contains(mode),
+        ) as String).contains('trackpad-$mode'),
         '键盘输入未进入目标输入框',
       );
       final dragBefore = await page.evaluate('window.__drag') as num;

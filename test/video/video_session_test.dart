@@ -13,6 +13,8 @@ import 'video_encoder_test.dart' show makeJpeg;
 
 /// 可控 FakeCdpPage：帧流由测试推入。
 class _FakeCdpPage extends CdpPage {
+  _FakeCdpPage([this._deviceScaleFactor = 1]);
+  double _deviceScaleFactor;
   final frameController = StreamController<ScreencastFrameData>.broadcast();
   final sent = <(String, Map<String, dynamic>?)>[];
   int _width = 720;
@@ -32,7 +34,7 @@ class _FakeCdpPage extends CdpPage {
       return jsonEncode({
         'viewportWidth': _width,
         'viewportHeight': _height,
-        'dpr': 1,
+        'deviceScaleFactor': _deviceScaleFactor,
       });
     }
     return null;
@@ -47,6 +49,7 @@ class _FakeCdpPage extends CdpPage {
     if (method == 'Emulation.setDeviceMetricsOverride') {
       _width = params!['width'] as int;
       _height = params['height'] as int;
+      _deviceScaleFactor = (params['deviceScaleFactor'] as num).toDouble();
     }
     return <String, dynamic>{};
   }
@@ -328,6 +331,101 @@ void main() {
     await stream2.drain<void>();
   }, timeout: const Timeout(Duration(seconds: 60)));
 
+  for (final size in [(780, 1556, 1.5), (390, 778, 3.0)]) {
+    test('视频 $size：采集比例与点击、滚动及断线释放使用同一表面', () async {
+      final lookup = await locator.find();
+      if (!lookup.available) return;
+      final relay = RelayServer(staticDir: 'assets/web');
+      await relay.start();
+      addTearDown(relay.stop);
+      final page = _FakeCdpPage(2);
+      final session = VideoSession(page: page, relay: relay);
+      await session.start();
+      addTearDown(session.stop);
+      final (ws, _) = await connectAuthed(relay);
+      addTearDown(() => ws.sink.close());
+      ws.sink.add(
+        RelayEnvelope(
+          channel: RelayChannel.ctrl,
+          type: RelayMessageType.setViewport,
+          seq: 1,
+          data: {
+            'width': size.$1,
+            'height': size.$2,
+            'deviceScaleFactor': size.$3,
+          },
+        ).encode(),
+      );
+      await waitFor(
+        () => page.sent.any(
+          (c) => c.$1 == 'Page.startScreencast' && c.$2?['maxWidth'] == 1170,
+        ),
+        timeoutSeconds: 12,
+      );
+      final scale = size.$3 / 2;
+      expect(
+        page.sent
+            .lastWhere((c) => c.$1 == 'Emulation.setDeviceMetricsOverride')
+            .$2?['scale'],
+        scale,
+      );
+      expect(
+        page.sent.lastWhere((c) => c.$1 == 'Emulation.setVisibleSize').$2,
+        {'width': 585, 'height': 1167},
+      );
+      for (final input in [
+        {
+          'kind': 'mouse',
+          'action': 'down',
+          'x': 100,
+          'y': 200,
+          'button': 'left',
+        },
+        {'kind': 'mouse', 'action': 'move', 'x': 110, 'y': 220, 'buttons': 1},
+        {'kind': 'wheel', 'x': 110, 'y': 220, 'deltaX': 20, 'deltaY': 40},
+      ]) {
+        ws.sink.add(
+          RelayEnvelope(
+            channel: RelayChannel.input,
+            type: RelayMessageType.input,
+            seq: 2,
+            data: input,
+          ).encode(),
+        );
+      }
+      await waitFor(
+        () => page.sent.any(
+          (c) =>
+              c.$1 == 'Input.dispatchMouseEvent' &&
+              c.$2?['type'] == 'mouseWheel',
+        ),
+      );
+      final events = page.sent
+          .where((c) => c.$1 == 'Input.dispatchMouseEvent')
+          .map((c) => c.$2!)
+          .toList();
+      expect(events[0]['x'], 100 * scale);
+      expect(events[0]['y'], 200 * scale);
+      expect(events[1]['x'], 110 * scale);
+      expect(events[1]['buttons'], 1);
+      expect(events[2]['deltaX'], 20 * scale);
+      expect(events[2]['deltaY'], 40 * scale);
+      await ws.sink.close();
+      await waitFor(
+        () => page.sent.any(
+          (c) =>
+              c.$1 == 'Input.dispatchMouseEvent' &&
+              c.$2?['type'] == 'mouseReleased',
+        ),
+      );
+      final release = page.sent
+          .lastWhere((c) => c.$1 == 'Input.dispatchMouseEvent')
+          .$2!;
+      expect(release['x'], 110 * scale);
+      expect(release['y'], 220 * scale);
+    });
+  }
+
   test('启动期间更改视口，按新物理尺寸重启采集，不沿用旧表面', () async {
     final lookup = await locator.find();
     if (!lookup.available) return;
@@ -357,6 +455,11 @@ void main() {
         .$2!;
     expect(start['maxWidth'], 1170);
     expect(start['maxHeight'], 2334);
+    // 每次恢复都应先完成截图，再启采集，不能把截图的临时表面混入视频。
+    final startIndex = page.sent.lastIndexWhere(
+      (c) => c.$1 == 'Page.startScreencast',
+    );
+    expect(page.sent.sublist(0, startIndex).last.$1, 'Page.captureScreenshot');
     expect(page.sent.any((c) => c.$1 == 'Emulation.setVisibleSize'), isTrue);
   });
 

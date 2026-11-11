@@ -516,8 +516,9 @@ export class VideoView {
             }),
             video: {
               codec: this.codec === 'av1' ? 'av1' : this.codec === 'hevc' ? 'hevc' : 'avc',
-              width: Math.round(this.viewportWidth * this.deviceScaleFactor) || 1280,
-              height: Math.round(this.viewportHeight * this.deviceScaleFactor) || 720,
+              // 与宿主编码器统一为偶数物理像素，否则 MP4 显示比例会偏离 SPS。
+              width: Math.ceil(this.viewportWidth * this.deviceScaleFactor / 2) * 2 || 1280,
+              height: Math.ceil(this.viewportHeight * this.deviceScaleFactor / 2) * 2 || 720,
             },
             fastStart: 'fragmented',
             minFragmentDuration: 0,

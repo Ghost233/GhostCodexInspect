@@ -85,9 +85,18 @@ Future<void> main() async {
     );
     await remote.goto(relay.accessUrl.toString(), wait: pp.Until.load);
     await wait(remote, 'window.__remote?.videoView.video.currentTime>0');
-    await remote.evaluate(
-      "document.addEventListener('pointerdown',()=>{window.__tapAt=performance.now();},true)",
-    );
+    await remote.evaluate('''document.addEventListener('pointerdown',()=>{
+        window.__tapAt=performance.now();window.__paintMs=null;
+        const v=window.__remote.videoView.video,c=document.createElement('canvas');
+        c.width=c.height=1;const x=c.getContext('2d');
+        const read=()=>{x.drawImage(v,10,10,1,1,0,0,1,1);return x.getImageData(0,0,1,1).data[2]>180;};
+        const before=read();
+        const check=(_now,meta)=>{
+          if(read()!==before) window.__paintMs=Math.max(performance.now(),meta.expectedDisplayTime)-window.__tapAt;
+          else v.requestVideoFrameCallback(check);
+        };
+        v.requestVideoFrameCallback(check);
+      },true)''');
     await Future<void>.delayed(const Duration(seconds: 3));
     var bytes = video.status.bytesSent;
     await Future<void>.delayed(const Duration(seconds: 3));
@@ -110,12 +119,14 @@ Future<void> main() async {
         );
         rethrow;
       }
-      samples.add(
-        (await remote.evaluate('performance.now()-window.__tapAt') as num)
-            .round(),
-      );
+      final observed = (await remote.evaluate(
+        'performance.now()-window.__tapAt',
+      ) as num).round();
+      // 用浏览器的视频帧显示时间验收，CDP 轮询的往返耗时另记。
+      await wait(remote, 'window.__paintMs!==null');
+      samples.add((await remote.evaluate('window.__paintMs') as num).round());
       stdout.writeln(
-        'CLICK ${samples.last} ms; host_queue=${video.status.encodeQueueDepth}',
+        'CLICK ${samples.last} ms; polling_observed=$observed ms; host_queue=${video.status.encodeQueueDepth}',
       );
     }
     final metrics = await remote.evaluate(

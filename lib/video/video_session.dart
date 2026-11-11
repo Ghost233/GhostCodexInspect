@@ -255,6 +255,12 @@ class VideoSession {
         kind: encoderKind,
         bitrateKbps: bitrateKbps,
         nominalFps: _frameRate,
+        // 截图与实时采集在分数 DPR 下可能相差一两像素；编码流始终使用
+        // 同一个偶数物理尺寸，防止解码过程中尺寸跳变。
+        outputSize: (
+          width: ((_viewportWidth * _deviceScaleFactor).ceil() + 1) ~/ 2 * 2,
+          height: ((_viewportHeight * _deviceScaleFactor).ceil() + 1) ~/ 2 * 2,
+        ),
       );
       await encoder.start();
       _encoder = encoder;
@@ -263,6 +269,17 @@ class VideoSession {
         _onAccessUnit,
         onError: (Object e) => _lastError = '$e',
       );
+      // 先取静止窗口的首屏种子，再启动实时采集。captureScreenshot 会
+      // 临时改变渲染比例和表面尺寸，不能让采集管线接收这些过渡帧。
+      final seed = await page.send('Page.captureScreenshot', {
+        'format': 'jpeg',
+        'quality': quality,
+      });
+      if (_latestFrame == null && seed['data'] is String) {
+        _latestFrameData = seed['data'] as String;
+        _latestFrame = base64Decode(_latestFrameData!);
+        _lastChangeMs = DateTime.now().millisecondsSinceEpoch;
+      }
       // 帧订阅必须先于 startScreencast：期间到达的帧若漏 ack，
       // CDP 流控会停发后续帧（2026-10-19 间歇性帧停滞的根因）
       _frameSub = page.screencastFrames.listen(
@@ -285,16 +302,6 @@ class VideoSession {
         'everyNthFrame': everyNthFrameForFps(_frameRate),
       });
       _encoding = true;
-      // 隐藏/静止窗口不一定主动推送首张 screencast 截图，显式取一张种子。
-      final seed = await page.send('Page.captureScreenshot', {
-        'format': 'jpeg',
-        'quality': quality,
-      });
-      if (_latestFrame == null && seed['data'] is String) {
-        _latestFrameData = seed['data'] as String;
-        _latestFrame = base64Decode(_latestFrameData!);
-        _lastChangeMs = DateTime.now().millisecondsSinceEpoch;
-      }
       if (!_encoding || !_active) return;
       // 变化后按编码时钟短暂复用截图，排空编码管线；静止超过一秒停发。
       _frameTicker = Timer.periodic(
@@ -579,6 +586,18 @@ class VideoSession {
     } on InputPayloadException catch (e) {
       _lastError = e.message;
       return;
+    }
+    if (_viewportOverridden &&
+        (payload['kind'] == 'mouse' || payload['kind'] == 'wheel')) {
+      // CDP 输入落在宿主可见表面；将逻辑坐标映射到与采集相同的比例。
+      final scale = _deviceScaleFactor / _nativeDeviceScaleFactor;
+      for (final key in [
+        'x',
+        'y',
+        if (payload['kind'] == 'wheel') ...['deltaX', 'deltaY'],
+      ]) {
+        payload[key] = (payload[key] as num) * scale;
+      }
     }
     _mouseButtons.record(clientId, payload);
     unawaited(

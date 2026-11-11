@@ -82,3 +82,25 @@ test('缩放改变后重新投影坐标，光标保持原来屏幕位置',t=>{
   const before=pad.point();zoom(4);const after=pad.point();
   assert.equal(after.x,before.x);assert.equal(after.source.x,before.source.x*2);
 });
+
+test('重绘 iframe 获取焦点不取消手势，真正离开页面仍释放按键',t=>{
+  const listeners={};
+  const originalListener=globalThis.addEventListener, originalFocus=document.hasFocus;
+  let focused=true;
+  globalThis.addEventListener=(type,fn)=>{listeners[type]=fn;};
+  document.hasFocus=()=>focused;
+  t.after(()=>{globalThis.addEventListener=originalListener;document.hasFocus=originalFocus;});
+  const {pad,sent}=setup(t);
+  pad.lastTap=1000;
+  listeners.blur();
+  assert.equal(pad.lastTap,1000,'焦点仍在同一页面内，不应丢掉双击状态');
+  pad.toggleDrag();
+  focused=false;
+  listeners.blur();
+  assert.equal(pad.pressed,false);
+  assert.equal(sent.at(-1).action,'up');
+  focused=true;
+  pad.toggleDrag();
+  listeners.pagehide();
+  assert.equal(pad.pressed,false);
+});

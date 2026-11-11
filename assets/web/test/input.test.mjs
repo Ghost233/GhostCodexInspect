@@ -123,7 +123,7 @@ test('桌面普通字符和特殊键维持原有键盘转发', () => {
   assert.deepEqual(messages, [{ kind: 'text', text: 'a' }, { kind: 'key', key: 'Enter' }]);
 });
 
-test('触摸取消会释放远程按键，第二根手指不会重复点击', () => {
+test('单指拖拽取消会释放远程按键，丢失捕获不会重复释放', () => {
   const target = new Element('div');
   const messages = [];
   let focused = false;
@@ -135,11 +135,85 @@ test('触摸取消会释放远程按键，第二根手指不会重复点击', ()
   const touch = { pointerId: 1, pointerType: 'touch', isPrimary: true,
     clientX: 10, clientY: 20, button: 0 };
   target.emit('pointerdown', touch);
-  target.emit('pointerdown', { ...touch, pointerId: 2, isPrimary: false });
+  target.emit('pointermove', { ...touch, clientX: 30 });
   target.emit('pointercancel', { ...touch, clientX: -1 });
   target.emit('lostpointercapture', touch);
-  assert.deepEqual(messages.map((m) => m.action), ['down', 'up']);
+  assert.deepEqual(messages.filter((m) => m.action !== 'move').map((m) => m.action), ['down', 'up']);
   assert.equal(focused, false);
+});
+
+for (const scale of [0.5, 1, 2]) {
+  test(`直接触摸：双指按源视口比例 ${scale} 自然滚动，不点击或唤起键盘`, () => {
+    const target = new Element('div');
+    const messages = [];
+    bindPointerInput(target, {
+      toSource: ({ clientX, clientY }) => ({ x: (clientX - 10) * scale, y: (clientY - 20) * scale }),
+      send: (message) => messages.push(message),
+      isEditable: () => true,
+      keyboard: { focus() { assert.fail('双指滚动不能唤起键盘'); } },
+    });
+    const first = { pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: 60, clientY: 100 };
+    const second = { ...first, pointerId: 2, isPrimary: false, clientX: 160 };
+    target.emit('pointerdown', first);
+    target.emit('pointerdown', second);
+    target.emit('pointermove', { ...first, clientX: 40, clientY: 60 });
+    target.emit('pointermove', { ...second, clientX: 140, clientY: 60 });
+    target.emit('pointerup', first);
+    const count = messages.length;
+    target.emit('pointermove', { ...second, clientY: 30 });
+    target.emit('pointerup', second);
+    assert.equal(messages.length, count, '剩余单指不能突然变为拖拽或继续滚动');
+    assert.equal(messages.length, 2);
+    assert.ok(messages.every((m) => m.kind === 'wheel'));
+    assert.equal(messages.reduce((sum, m) => sum + m.deltaX, 0), 20 * scale);
+    assert.equal(messages.reduce((sum, m) => sum + m.deltaY, 0), 40 * scale);
+    assert.equal(messages[0].x, 90 * scale, '滚动命中双指中点所在的区域');
+    assert.equal(messages[0].y, 60 * scale);
+  });
+}
+
+test('直接触摸：双指轻点或取消不会误点，全部抬起后可再次单指点击', () => {
+  const target = new Element('div');
+  const messages = [];
+  bindPointerInput(target, {
+    toSource: ({ clientX, clientY }) => ({ x: clientX, y: clientY }),
+    send: (message) => messages.push(message),
+    keyboard: { focus() { assert.fail('普通区域不能唤起键盘'); } },
+  });
+  const touch = { pointerId: 1, pointerType: 'touch', clientX: 40, clientY: 60 };
+  for (const finish of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+    target.emit('pointerdown', touch);
+    target.emit('pointerdown', { ...touch, pointerId: 2, isPrimary: false });
+    target.emit(finish, touch);
+    target.emit('pointerup', { ...touch, pointerId: 2, isPrimary: false });
+  }
+  assert.equal(messages.length, 0);
+  target.emit('pointerdown', touch);
+  target.emit('pointerup', touch);
+  assert.deepEqual(messages.map((m) => m.action), ['down', 'up']);
+});
+
+test('直接触摸：切换模式或断线取消会释放单指拖拽，并清除双指状态', () => {
+  const target = new Element('div');
+  const messages = [];
+  const pointer = bindPointerInput(target, {
+    toSource: ({ clientX, clientY }) => ({ x: clientX, y: clientY }),
+    send: (message) => messages.push(message),
+    keyboard: { focus() {} },
+  });
+  const touch = { pointerId: 1, pointerType: 'touch', clientX: 40, clientY: 60 };
+  target.emit('pointerdown', touch);
+  target.emit('pointermove', { ...touch, clientX: 80 });
+  pointer.setMode('trackpad');
+  assert.equal(messages.at(-1).action, 'up');
+  pointer.setMode('direct');
+  messages.length = 0;
+  target.emit('pointerdown', touch);
+  target.emit('pointerdown', { ...touch, pointerId: 2 });
+  pointer.cancel();
+  target.emit('pointerdown', touch);
+  target.emit('pointerup', touch);
+  assert.deepEqual(messages.map((m) => m.action), ['down', 'up']);
 });
 
 test('视频 MSE 输入保留鼠标右键，兼容鼠标事件不重复转发', () => {

@@ -589,13 +589,9 @@ class VideoSession {
     }
     if (_viewportOverridden &&
         (payload['kind'] == 'mouse' || payload['kind'] == 'wheel')) {
-      // CDP 输入落在宿主可见表面；将逻辑坐标映射到与采集相同的比例。
+      // 位置落在宿主可见表面；滚动量已经是源 CSS 像素，不能重复缩放。
       final scale = _deviceScaleFactor / _nativeDeviceScaleFactor;
-      for (final key in [
-        'x',
-        'y',
-        if (payload['kind'] == 'wheel') ...['deltaX', 'deltaY'],
-      ]) {
+      for (final key in ['x', 'y']) {
         payload[key] = (payload[key] as num) * scale;
       }
     }

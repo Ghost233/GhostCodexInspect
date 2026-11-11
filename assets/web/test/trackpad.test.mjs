@@ -66,6 +66,28 @@ test('双指轻点只产生右键，双指滑动产生滚轮且不移动光标',
   assert.ok(sent.every(m=>m.kind==='wheel'&&m.deltaY<0&&m.x===299));
 });
 
+for (const scale of [0.5,1,2]) {
+  test(`模拟鼠标：双指以三倍速度立即滚动，缩放 ${scale} 和光标停在边缘均不减速`,t=>{
+    const {pad,target,sent,zoom}=setup(t);
+    zoom(scale);
+    const project=pad.toSource;
+    pad.toSource=e=>e.clientX>309 || e.clientY>219 ? null : project(e);
+    pad.position={x:1,y:1};
+    target.emit('pointerdown');
+    target.emit('pointerdown',{pointerId:2,clientX:130});
+    target.emit('pointermove',{clientX:50,clientY:80});
+    assert.equal(sent.length,1);
+    target.emit('pointermove',{pointerId:2,clientX:150,clientY:80});
+    assert.equal(sent.length,2);
+    assert.ok(sent.every(m=>m.kind==='wheel'));
+    assert.equal(sent.reduce((sum,m)=>sum+m.deltaX,0),-60*scale);
+    assert.equal(sent.reduce((sum,m)=>sum+m.deltaY,0),-120*scale);
+    assert.ok(sent.every(m=>m.x===299*scale && m.y===199*scale));
+    target.emit('pointerup');target.emit('pointerup',{pointerId:2});
+    assert.equal(sent.length,2,'抬手后不能继续补发旧滚动事件');
+  });
+}
+
 test('拖拽锁定持续到按钮释放，取消手势和切换模式均释放按键',t=>{
   const {pad,target,sent}=setup(t);
   pad.toggleDrag();target.emit('pointerdown');target.emit('pointermove',{clientX:80});target.emit('pointerup');

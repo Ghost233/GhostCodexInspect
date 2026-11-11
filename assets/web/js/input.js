@@ -11,7 +11,7 @@
  * （mouse / wheel / text / key 四种 kind）。
  */
 
-import { Trackpad } from './trackpad.js';
+import { Trackpad, TOUCH_SCROLL_GAIN } from './trackpad.js';
 
 /** 可打印键之外的转发白名单（与宿主 kKeyEventParams 对齐） */
 const KEY_FORWARD_SET = new Set([
@@ -180,7 +180,9 @@ export function bindPointerInput(target, { toSource, send, keyboard, getRect = (
       touches.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
       if (multiTouch) {
         const point = touches.size === 2 ? toSource(center()) : null;
-        if (before && point) send({ kind: 'wheel', ...point, deltaX: before.x - point.x, deltaY: before.y - point.y });
+        if (before && point) send({ kind: 'wheel', ...point,
+          deltaX: (before.x - point.x) * TOUCH_SCROLL_GAIN,
+          deltaY: (before.y - point.y) * TOUCH_SCROLL_GAIN });
         return;
       }
     }

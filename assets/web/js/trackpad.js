@@ -1,3 +1,6 @@
+/** 手机短划按三倍距离滚动；只用于双指手势，不改变鼠标滚轮。 */
+export const TOUCH_SCROLL_GAIN = 3;
+
 /** 手机触控板：本地光标、相对移动、双指滚轮和可信鼠标按键。 */
 export class Trackpad {
   constructor(target, { toSource, getRect, send, keyboard, isEditable, onCancel }) {
@@ -143,7 +146,14 @@ export class Trackpad {
     if (this.multi) {
       if (this.touches.size < 2) return;
       const point = this.point();
-      if (point) this.send({ kind: 'wheel', ...point.source, deltaX: -dx / 2, deltaY: -dy / 2 });
+      if (point) {
+        // 在可见区域中间取比例，避免光标靠边时投影到画面外而停滚。
+        const center = { clientX: point.rect.left + point.rect.width / 2, clientY: point.rect.top + point.rect.height / 2 };
+        const a = this.toSource(center), b = this.toSource({ clientX: center.clientX + 1, clientY: center.clientY + 1 });
+        if (a && b) this.send({ kind: 'wheel', ...point.source,
+          deltaX: -dx / 2 * (b.x - a.x) * TOUCH_SCROLL_GAIN,
+          deltaY: -dy / 2 * (b.y - a.y) * TOUCH_SCROLL_GAIN });
+      }
       return;
     }
     const r = this.geometry();

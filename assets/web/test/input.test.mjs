@@ -143,7 +143,7 @@ test('单指拖拽取消会释放远程按键，丢失捕获不会重复释放',
 });
 
 for (const scale of [0.5, 1, 2]) {
-  test(`直接触摸：双指按源视口比例 ${scale} 自然滚动，不点击或唤起键盘`, () => {
+  test(`直接触摸：双指按源视口比例 ${scale} 以三倍速度立即滚动，不点击或唤起键盘`, () => {
     const target = new Element('div');
     const messages = [];
     bindPointerInput(target, {
@@ -157,7 +157,9 @@ for (const scale of [0.5, 1, 2]) {
     target.emit('pointerdown', first);
     target.emit('pointerdown', second);
     target.emit('pointermove', { ...first, clientX: 40, clientY: 60 });
+    assert.equal(messages.length, 1, '不能等到抬手或定时器才发送滚动');
     target.emit('pointermove', { ...second, clientX: 140, clientY: 60 });
+    assert.equal(messages.length, 2, '每根手指的移动都应立即贡献滚动距离');
     target.emit('pointerup', first);
     const count = messages.length;
     target.emit('pointermove', { ...second, clientY: 30 });
@@ -165,8 +167,8 @@ for (const scale of [0.5, 1, 2]) {
     assert.equal(messages.length, count, '剩余单指不能突然变为拖拽或继续滚动');
     assert.equal(messages.length, 2);
     assert.ok(messages.every((m) => m.kind === 'wheel'));
-    assert.equal(messages.reduce((sum, m) => sum + m.deltaX, 0), 20 * scale);
-    assert.equal(messages.reduce((sum, m) => sum + m.deltaY, 0), 40 * scale);
+    assert.equal(messages.reduce((sum, m) => sum + m.deltaX, 0), 60 * scale);
+    assert.equal(messages.reduce((sum, m) => sum + m.deltaY, 0), 120 * scale);
     assert.equal(messages[0].x, 90 * scale, '滚动命中双指中点所在的区域');
     assert.equal(messages[0].y, 60 * scale);
   });

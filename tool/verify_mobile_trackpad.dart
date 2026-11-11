@@ -11,7 +11,9 @@ import 'package:ghost_codex_inspect/video/video.dart';
 import 'package:puppeteer/protocol/input.dart' show TouchPoint;
 import 'package:puppeteer/puppeteer.dart' as pp;
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
+  final zoom = args.contains('--zoom50') ? 50 : 100;
+  final sourceScale = 100 / zoom;
   const port = 9245;
   try {
     final socket = await Socket.connect(
@@ -111,6 +113,9 @@ Future<void> main() async {
       regions = EditableRegions(page, relay);
       await regions.start();
       final remote = await browser.newPage();
+      await remote.evaluateOnNewDocument(
+        "localStorage.setItem('gci.viewZoom','$zoom');",
+      );
       remote.onError.listen((error) => stderr.writeln('PAGE ERROR: $error'));
       await remote.goto(url, wait: pp.Until.load);
       await until(
@@ -135,7 +140,7 @@ Future<void> main() async {
         );
         await until(
           () => remote.evaluate<bool>(
-            "window.__remote.session.sourceWidth===390 && window.__remote.session.sourceHeight===document.getElementById('stage-dom').clientHeight",
+            "window.__remote.session.sourceWidth===${(390 * sourceScale).round()} && window.__remote.session.sourceHeight===Math.round(document.getElementById('stage-dom').clientHeight*$sourceScale)",
           ),
           'DOM 视口未收敛',
         );
@@ -176,9 +181,11 @@ Future<void> main() async {
       ]);
       await until(
         () async =>
-            (await page.evaluate('scrollX') as num) > beforeScrollX &&
-            (await page.evaluate('scrollY') as num) > beforeScrollY,
-        '直接触摸双指未按自然方向横向/纵向滚动',
+            (await page.evaluate('scrollX') as num) - beforeScrollX >=
+                120 * sourceScale - 1 &&
+            (await page.evaluate('scrollY') as num) - beforeScrollY >=
+                240 * sourceScale - 1,
+        '直接触摸双指短划未达到约三倍横向/纵向滚动距离',
       );
       await remote.devTools.input.dispatchTouchEvent('touchEnd', [
         TouchPoint(x: input.x + 20, y: input.y - 80, id: 2),
@@ -190,6 +197,16 @@ Future<void> main() async {
       ]);
       await remote.devTools.input.dispatchTouchEvent('touchEnd', []);
       await Future<void>.delayed(const Duration(milliseconds: 100));
+      final directScrollX =
+          (await page.evaluate('scrollX') as num) - beforeScrollX;
+      final directScrollY =
+          (await page.evaluate('scrollY') as num) - beforeScrollY;
+      if ((directScrollX - 120 * sourceScale).abs() > 1 ||
+          (directScrollY - 240 * sourceScale).abs() > 1) {
+        throw StateError(
+          '滚动量受渲染比例影响: zoom=$zoom, delta=($directScrollX,$directScrollY)',
+        );
+      }
       if (await page.evaluate('window.__wheels') != wheels ||
           await page.evaluate('window.__clicks') != beforeClicks ||
           await page.evaluate('window.__held') != false ||
@@ -238,7 +255,7 @@ Future<void> main() async {
         '直接触摸单指拖拽未完成或未释放',
       );
       stdout.writeln(
-        'PASS $mode direct: two-finger horizontal/vertical scrolling without clicks or keyboard; remaining finger suppressed; single-finger click, keyboard and drag restored.',
+        'PASS $mode direct $zoom%: finger=(40,80), source_scroll=($directScrollX,$directScrollY); no clicks or keyboard; remaining finger suppressed; single-finger click, keyboard and drag restored.',
       );
       await page.evaluate('window.scrollTo(0,0)');
       await remote.click('#more-settings summary');
@@ -340,9 +357,15 @@ Future<void> main() async {
       ]);
       await remote.devTools.input.dispatchTouchEvent('touchEnd', []);
       await until(
-        () async => (await page.evaluate('scrollY') as num) > scroll,
-        '双指滚轮未滚动目标页面',
+        () async =>
+            ((await page.evaluate('scrollY') as num) -
+                    scroll -
+                    300 * sourceScale)
+                .abs() <=
+            1,
+        '模拟鼠标双指短划未达到约三倍滚动距离',
       );
+      final trackpadScroll = (await page.evaluate('scrollY') as num) - scroll;
       await aim('#echo-input');
       await remote.touchscreen.tap(pp.Point(100, 400));
       await until(
@@ -382,7 +405,7 @@ Future<void> main() async {
       );
       await remote.close();
       stdout.writeln(
-        'PASS $mode: relative cursor, click, double click, gesture drag, right click, scroll, keyboard, drag lock and disconnect release.',
+        'PASS $mode trackpad $zoom%: finger=100, source_scroll=$trackpadScroll; relative cursor, click, double click, gesture drag, right click, keyboard, drag lock and disconnect release.',
       );
       regions.stop();
       regions = null;

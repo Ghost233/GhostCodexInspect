@@ -20,6 +20,7 @@
       <div class="traffic-stats" title="本页启动以来的 WebSocket 消息收发合计，不含传输层开销；重连继续累计，刷新重新计数。">
         <span>平均 <span id="traffic-average">0 B/s</span></span>
         <span>累计 <span id="traffic-total">0 B</span></span>
+        <span id="freshness" class="freshness hidden" aria-live="off" title="WebSocket 心跳往返时间（RTT），不含视频采集、编码和解码耗时。"></span>
       </div>
       <span id="ro-badge" class="ro-badge hidden">只读预览</span>
       <span id="conn-indicator" class="conn-indicator disconnected" title="连接状态">
@@ -76,8 +77,6 @@
             <button id="probe-decode" class="size-toggle" title="检测本浏览器对各编码格式的硬解/软解支持">检测解码支持</button>
             <span id="decode-support" class="freshness hidden"></span>
           </div>
-          <div class="settings-heading">连接信息</div>
-          <span id="freshness" class="freshness hidden" aria-live="off" title="WebSocket 心跳往返时间（RTT），不含视频采集、编码和解码耗时。"></span>
         </div>
       </details>
     </div>

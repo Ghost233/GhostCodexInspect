@@ -95,12 +95,17 @@ body {
 
 .traffic-stats {
   display: inline-flex;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  max-width: 100%;
   color: var(--text-secondary);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+.traffic-stats .freshness { margin-right: 0; }
+.traffic-stats .freshness-num { min-width: 3ch; }
 
 .mode-btn {
   appearance: none;
@@ -169,6 +174,10 @@ body {
   .mode-status { width: 100%; margin: 0; justify-content: space-between; }
   .topbar-right { width: 100%; }
   .topbar-right > * { flex-shrink: 0; }
+}
+
+@media (max-width: 600px) {
+  .traffic-stats { order: 1; flex-basis: 100%; }
 }
 
 .conn-indicator {
@@ -264,7 +273,7 @@ body {
 .replayer-host iframe {
   border: none;
   background: #fff; /* 重建出的页面多为亮色底，iframe 内保持原样 */
-  transform-origin: top left;
+  transform-origin: center center;
 }
 
 /* 输入捕获层（#11）：盖在 iframe 上的透明层，远端事件经它换算坐标后

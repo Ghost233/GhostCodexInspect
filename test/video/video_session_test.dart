@@ -408,8 +408,8 @@ void main() {
       expect(events[0]['y'], 200 * scale);
       expect(events[1]['x'], 110 * scale);
       expect(events[1]['buttons'], 1);
-      expect(events[2]['deltaX'], 20 * scale);
-      expect(events[2]['deltaY'], 40 * scale);
+      expect(events[2]['deltaX'], 20, reason: '滚动量已是源 CSS 像素，不能再次乘渲染比例');
+      expect(events[2]['deltaY'], 40);
       await ws.sink.close();
       await waitFor(
         () => page.sent.any(
